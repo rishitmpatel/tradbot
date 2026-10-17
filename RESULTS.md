@@ -2,77 +2,73 @@
 
 > Paper-trading research only. Validation (walk-forward out-of-sample) results; the locked test set was **not** used here. final_test.py has not been run yet.
 
-- Generated: 2026-10-17 23:34  
+- Generated: 2026-10-18 00:24  
 - Data source: `yahoo`  
-- Round: 1  
-- Variants tried (all rounds, used for Sharpe penalty): **12**  
+- Round: 2  
+- Variants tried (all rounds, used for Sharpe penalty): **20**  
 - Development data ends: 2024-10-15; locked test set: 2024-10-16 -> 2026-10-16  
 - Costs: 15 bps per unit traded (commission + slippage)  
 - Survival rule: run DEAD if equity falls > 15% below its peak (start 100,000)
 
 ## Verdict
 
-**NO STRATEGY PASSED.** No strategy met all of: positive OOS return after costs, penalized Sharpe > 1.0, survival >= 80%, and robustness under 2x costs and other seeds. This is a normal, honest outcome.
+**NO STRATEGY PASSED.** No strategy met all of: positive OOS return after costs, penalized Sharpe > 1.0, survival >= 80%, Sharpe above buy-and-hold on the same windows, beating its own rule without RL (overlays), and robustness under 2x costs and other seeds. This is a normal, honest outcome.
+
+Low-risk match (about buy-and-hold's Sharpe with <= 60% of its drawdown; informational, NOT a pass): r2_voltarget_pure_return_ppo
 
 ## RL experiments (every variant, including failures)
 
-| experiment | algo | status | runs ok | survived | OOS return (mean seeds) | worst seed | Sharpe | penalized Sharpe | DSR prob | Sortino | max DD (stitched) | turnover/yr | verdict |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| dqn_base | DQN | ok | 27/27 | 26/27 (96%) | +13.4% | -2.8% | 0.25 | -0.31 | 0.19 | 0.34 | 16.4% | 7.0 | FAIL |
-| dqn_longshort | DQN | ok | 27/27 | 24/27 (89%) | +1.6% | -12.4% | 0.04 | -0.52 | 0.06 | 0.06 | 19.3% | 6.9 | FAIL |
-| dqn_strong_dd_penalty | DQN | ok | 27/27 | 26/27 (96%) | +8.3% | -9.9% | 0.17 | -0.39 | 0.13 | 0.25 | 14.0% | 2.8 | FAIL |
-| ppo_base | PPO | ok | 27/27 | 26/27 (96%) | -0.1% | -7.6% | 0.05 | -0.51 | 0.07 | 0.14 | 9.2% | 1.5 | FAIL |
-| ppo_cost_aware | PPO | ok | 27/27 | 27/27 (100%) | -0.0% | -2.5% | 0.03 | -0.53 | 0.06 | 0.04 | 8.4% | 0.9 | FAIL |
-| ppo_half_position | PPO | ok | 27/27 | 27/27 (100%) | +8.6% | -7.0% | 0.26 | -0.30 | 0.20 | 0.37 | 10.3% | 6.8 | FAIL |
-| ppo_longshort | PPO | ok | 27/27 | 27/27 (100%) | -4.6% | -7.3% | -0.17 | -0.73 | 0.02 | -0.23 | 9.0% | 4.0 | FAIL |
-| ppo_pure_return | PPO | ok | 27/27 | 21/27 (78%) | +76.6% | +68.7% | 0.84 | 0.28 | 0.79 | 1.15 | 19.9% | 3.2 | FAIL |
-| ppo_risk_penalty | PPO | ok | 27/27 | 26/27 (96%) | +28.8% | +21.5% | 0.50 | -0.07 | 0.42 | 0.70 | 13.7% | 4.0 | FAIL |
-| ppo_strong_dd_penalty | PPO | ok | 27/27 | 27/27 (100%) | +0.1% | -2.6% | 0.19 | -0.37 | 0.14 | 0.43 | 3.9% | 0.8 | FAIL |
-| ppo_trend_features | PPO | ok | 27/27 | 26/27 (96%) | -3.5% | -13.6% | -0.04 | -0.61 | 0.04 | -0.02 | 11.5% | 0.9 | FAIL |
-| ppo_window5 | PPO | ok | 27/27 | 26/27 (96%) | -1.0% | -13.5% | -0.02 | -0.58 | 0.04 | 0.00 | 14.9% | 9.3 | FAIL |
+| experiment | algo | status | runs ok | survived | OOS return (mean seeds) | worst seed | Sharpe | penalized Sharpe | DSR prob | Sortino | max DD (stitched) | turnover/yr | Sharpe - B&H | DD / B&H DD | rule-only Sharpe | low-risk match | verdict |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| r2_active_vs_bh_ppo | PPO | ok | 27/27 | 27/27 (100%) | +37.7% | +25.9% | 0.68 | 0.04 | 0.54 | 0.95 | 11.8% | 8.9 | -0.38 | 0.64 | n/a | no | FAIL |
+| r2_dsr_ppo | PPO | ok | 27/27 | 21/27 (78%) | +74.0% | +57.5% | 0.83 | 0.19 | 0.71 | 1.15 | 20.7% | 7.4 | -0.23 | 1.12 | n/a | no | FAIL |
+| r2_overlay_bh_dqn | DQN | ok | 27/27 | 27/27 (100%) | +23.7% | +19.0% | 0.58 | -0.06 | 0.43 | 0.80 | 9.4% | 11.7 | -0.49 | 0.51 | 1.46 | no | FAIL |
+| r2_overlay_bh_dsr_ppo | PPO | ok | 27/27 | 27/27 (100%) | +67.7% | +61.4% | 1.14 | 0.50 | 0.93 | 1.63 | 11.5% | 8.1 | +0.08 | 0.62 | 1.46 | no | FAIL |
+| r2_overlay_bh_ppo | PPO | ok | 27/27 | 27/27 (100%) | +24.2% | +12.8% | 0.76 | 0.12 | 0.64 | 1.07 | 7.7% | 6.6 | -0.30 | 0.42 | 1.46 | no | FAIL |
+| r2_overlay_bh_weekly_ppo | PPO | ok | 27/27 | 27/27 (100%) | +20.9% | +18.4% | 0.63 | -0.01 | 0.49 | 0.89 | 7.8% | 5.7 | -0.43 | 0.42 | 1.46 | no | FAIL |
+| r2_overlay_trend_ppo | PPO | ok | 27/27 | 27/27 (100%) | +12.8% | +10.1% | 0.48 | -0.17 | 0.32 | 0.65 | 6.0% | 7.6 | -0.59 | 0.32 | 1.04 | no | FAIL |
+| r2_voltarget_pure_return_ppo | PPO | ok | 27/27 | 27/27 (100%) | +57.6% | +52.0% | 1.09 | 0.45 | 0.90 | 1.55 | 10.7% | 8.3 | +0.03 | 0.58 | 1.46 | yes | FAIL |
 
-Columns: *OOS return* = stitched walk-forward validation return after costs, mean over seeds. *Sharpe* = mean over seeds of the stitched OOS Sharpe. *Penalized Sharpe* = Sharpe minus the expected best-of-N Sharpe under no skill (N = variants tried). *DSR prob* = deflated Sharpe probability. *Survived* = walk-forward runs (fold x seed) that never hit the drawdown kill switch.
+Columns: *OOS return* = stitched walk-forward validation return after costs, mean over seeds. *Sharpe* = mean over seeds of the stitched OOS Sharpe. *Penalized Sharpe* = Sharpe minus the expected best-of-N Sharpe under no skill (N = variants tried). *DSR prob* = deflated Sharpe probability. *Survived* = walk-forward runs (fold x seed) that never hit the drawdown kill switch. *Sharpe - B&H* = Sharpe minus buy-and-hold's on the same windows. *DD / B&H DD* = stitched max drawdown relative to buy-and-hold's (below 1 = shallower). *Rule-only Sharpe* = the overlay's rule with the agent removed (multiplier fixed at 1); the agent must beat it. *Low-risk match* = Sharpe within 0.1 of B&H with <= 60% of its drawdown (informational).
 
 ## Baselines (same windows, same costs, same survival rule; fixed textbook parameters)
 
-| experiment | algo | status | runs ok | survived | OOS return (mean seeds) | worst seed | Sharpe | penalized Sharpe | DSR prob | Sortino | max DD (stitched) | turnover/yr | verdict |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| baseline:buy_and_hold | rule | ok | 9/9 | 7/9 (78%) | +120.9% | +120.9% | 1.06 | 0.50 | 0.92 | 1.48 | 18.5% | 1.0 | benchmark |
-| baseline:ma_crossover | rule | ok | 9/9 | 8/9 (89%) | +90.6% | +90.6% | 0.96 | 0.40 | 0.87 | 1.32 | 17.1% | 1.8 | benchmark |
-| baseline:mean_reversion | rule | ok | 9/9 | 8/9 (89%) | -1.8% | -1.8% | 0.00 | -0.56 | 0.05 | 0.01 | 22.5% | 13.2 | benchmark |
-| baseline:momentum | rule | ok | 9/9 | 8/9 (89%) | +51.7% | +51.7% | 0.62 | 0.05 | 0.56 | 0.84 | 22.1% | 6.6 | benchmark |
+| experiment | algo | status | runs ok | survived | OOS return (mean seeds) | worst seed | Sharpe | penalized Sharpe | DSR prob | Sortino | max DD (stitched) | turnover/yr | Sharpe - B&H | DD / B&H DD | rule-only Sharpe | low-risk match | verdict |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| baseline:buy_and_hold | rule | ok | 9/9 | 7/9 (78%) | +120.9% | +120.9% | 1.06 | 0.42 | 0.88 | 1.48 | 18.5% | 1.0 | +0.00 | 1.00 | n/a | no | benchmark |
+| baseline:ma_crossover | rule | ok | 9/9 | 8/9 (89%) | +90.6% | +90.6% | 0.96 | 0.32 | 0.82 | 1.32 | 17.1% | 1.8 | -0.10 | 0.93 | n/a | no | benchmark |
+| baseline:mean_reversion | rule | ok | 9/9 | 8/9 (89%) | -1.8% | -1.8% | 0.00 | -0.64 | 0.03 | 0.01 | 22.5% | 13.2 | -1.06 | 1.22 | n/a | no | benchmark |
+| baseline:momentum | rule | ok | 9/9 | 8/9 (89%) | +51.7% | +51.7% | 0.62 | -0.02 | 0.47 | 0.84 | 22.1% | 6.6 | -0.45 | 1.20 | n/a | no | benchmark |
+| baseline:vol_target | rule | ok | 9/9 | 9/9 (100%) | +118.4% | +118.4% | 1.46 | 0.82 | 0.99 | 2.13 | 13.3% | 3.0 | +0.40 | 0.72 | n/a | no | benchmark |
+| baseline:trend_vol_target | rule | ok | 9/9 | 9/9 (100%) | +62.4% | +62.4% | 1.04 | 0.40 | 0.88 | 1.48 | 11.5% | 6.8 | -0.02 | 0.62 | n/a | no | benchmark |
 
 ## Robustness (top validation candidates)
 
 | candidate | test | status | runs ok | survived | return | Sharpe | pass |
 |---|---|---|---|---|---|---|---|
-| ppo_pure_return | costs_2x | ok | 27/27 | 21/27 | +69.1% | 0.78 | False |
-| ppo_pure_return | other_assets | ok | 27/27 | 21/27 | +51.9% | 0.53 | False |
-| ppo_pure_return | other_seeds | not run (failed base criteria) | -/- | -/- | n/a | n/a | - |
-| ppo_pure_return | shifted_dates | not run (failed base criteria) | -/- | -/- | n/a | n/a | - |
-| ppo_risk_penalty | costs_2x | ok | 27/27 | 26/27 | +21.5% | 0.39 | False |
-| ppo_risk_penalty | other_assets | ok | 27/27 | 24/27 | +12.0% | 0.19 | False |
-| ppo_risk_penalty | other_seeds | not run (failed base criteria) | -/- | -/- | n/a | n/a | - |
-| ppo_risk_penalty | shifted_dates | not run (failed base criteria) | -/- | -/- | n/a | n/a | - |
-| ppo_half_position | costs_2x | ok | 27/27 | 27/27 | -0.8% | -0.02 | False |
-| ppo_half_position | other_assets | ok | 27/27 | 25/27 | -8.0% | -0.19 | False |
-| ppo_half_position | other_seeds | not run (failed base criteria) | -/- | -/- | n/a | n/a | - |
-| ppo_half_position | shifted_dates | not run (failed base criteria) | -/- | -/- | n/a | n/a | - |
+| r2_overlay_bh_dsr_ppo | costs_2x | ok | 27/27 | 27/27 | +50.5% | 0.90 | True |
+| r2_overlay_bh_dsr_ppo | other_assets | ok | 27/27 | 25/27 | +33.3% | 0.51 | True |
+| r2_overlay_bh_dsr_ppo | other_seeds | not run (failed base criteria) | -/- | -/- | n/a | n/a | - |
+| r2_overlay_bh_dsr_ppo | shifted_dates | not run (failed base criteria) | -/- | -/- | n/a | n/a | - |
+| r2_voltarget_pure_return_ppo | costs_2x | ok | 27/27 | 27/27 | +41.5% | 0.83 | True |
+| r2_voltarget_pure_return_ppo | other_assets | ok | 27/27 | 25/27 | +23.0% | 0.40 | False |
+| r2_voltarget_pure_return_ppo | other_seeds | not run (failed base criteria) | -/- | -/- | n/a | n/a | - |
+| r2_voltarget_pure_return_ppo | shifted_dates | not run (failed base criteria) | -/- | -/- | n/a | n/a | - |
+| r2_dsr_ppo | costs_2x | ok | 27/27 | 21/27 | +57.8% | 0.69 | False |
+| r2_dsr_ppo | other_assets | ok | 27/27 | 21/27 | +33.4% | 0.37 | False |
+| r2_dsr_ppo | other_seeds | not run (failed base criteria) | -/- | -/- | n/a | n/a | - |
+| r2_dsr_ppo | shifted_dates | not run (failed base criteria) | -/- | -/- | n/a | n/a | - |
 
 ## Why each RL experiment failed or passed
 
-- **dqn_base**: penalized Sharpe -0.31 (raw 0.25 - haircut 0.56) not > 1.0; robustness 'costs_2x' not run; robustness 'other_seeds' not run
-- **dqn_longshort**: penalized Sharpe -0.52 (raw 0.04 - haircut 0.56) not > 1.0; robustness 'costs_2x' not run; robustness 'other_seeds' not run
-- **dqn_strong_dd_penalty**: penalized Sharpe -0.39 (raw 0.17 - haircut 0.56) not > 1.0; robustness 'costs_2x' not run; robustness 'other_seeds' not run
-- **ppo_base**: OOS return -0.1% not > +0.0%; penalized Sharpe -0.51 (raw 0.05 - haircut 0.56) not > 1.0; robustness 'costs_2x' not run; robustness 'other_seeds' not run
-- **ppo_cost_aware**: OOS return -0.0% not > +0.0%; penalized Sharpe -0.53 (raw 0.03 - haircut 0.56) not > 1.0; robustness 'costs_2x' not run; robustness 'other_seeds' not run
-- **ppo_half_position**: penalized Sharpe -0.30 (raw 0.26 - haircut 0.56) not > 1.0; robustness 'costs_2x' failed: return -0.8%, Sharpe -0.02 <= 0.5; robustness 'other_seeds' not run (not run (failed base criteria))
-- **ppo_longshort**: OOS return -4.6% not > +0.0%; penalized Sharpe -0.73 (raw -0.17 - haircut 0.56) not > 1.0; robustness 'costs_2x' not run; robustness 'other_seeds' not run
-- **ppo_pure_return**: penalized Sharpe 0.28 (raw 0.84 - haircut 0.56) not > 1.0; survival 21/27 = 78% < 80%; robustness 'costs_2x' failed: survival 78%; robustness 'other_seeds' not run (not run (failed base criteria))
-- **ppo_risk_penalty**: penalized Sharpe -0.07 (raw 0.50 - haircut 0.56) not > 1.0; robustness 'costs_2x' failed: Sharpe 0.39 <= 0.5; robustness 'other_seeds' not run (not run (failed base criteria))
-- **ppo_strong_dd_penalty**: penalized Sharpe -0.37 (raw 0.19 - haircut 0.56) not > 1.0; robustness 'costs_2x' not run; robustness 'other_seeds' not run
-- **ppo_trend_features**: OOS return -3.5% not > +0.0%; penalized Sharpe -0.61 (raw -0.04 - haircut 0.56) not > 1.0; robustness 'costs_2x' not run; robustness 'other_seeds' not run
-- **ppo_window5**: OOS return -1.0% not > +0.0%; penalized Sharpe -0.58 (raw -0.02 - haircut 0.56) not > 1.0; robustness 'costs_2x' not run; robustness 'other_seeds' not run
+- **r2_active_vs_bh_ppo**: penalized Sharpe 0.04 (raw 0.68 - haircut 0.64) not > 1.0; Sharpe 0.68 not above buy-and-hold 1.06 (same windows); robustness 'costs_2x' not run; robustness 'other_seeds' not run
+- **r2_dsr_ppo**: penalized Sharpe 0.19 (raw 0.83 - haircut 0.64) not > 1.0; survival 21/27 = 78% < 80%; Sharpe 0.83 not above buy-and-hold 1.06 (same windows); robustness 'costs_2x' failed: survival 78%; robustness 'other_seeds' not run (not run (failed base criteria))
+- **r2_overlay_bh_dqn**: penalized Sharpe -0.06 (raw 0.58 - haircut 0.64) not > 1.0; Sharpe 0.58 not above buy-and-hold 1.06 (same windows); Sharpe 0.58 not above its own rule without RL 1.46 - the RL part added nothing; robustness 'costs_2x' not run; robustness 'other_seeds' not run
+- **r2_overlay_bh_dsr_ppo**: penalized Sharpe 0.50 (raw 1.14 - haircut 0.64) not > 1.0; Sharpe 1.14 not above its own rule without RL 1.46 - the RL part added nothing; robustness 'other_seeds' not run (not run (failed base criteria))
+- **r2_overlay_bh_ppo**: penalized Sharpe 0.12 (raw 0.76 - haircut 0.64) not > 1.0; Sharpe 0.76 not above buy-and-hold 1.06 (same windows); Sharpe 0.76 not above its own rule without RL 1.46 - the RL part added nothing; robustness 'costs_2x' not run; robustness 'other_seeds' not run
+- **r2_overlay_bh_weekly_ppo**: penalized Sharpe -0.01 (raw 0.63 - haircut 0.64) not > 1.0; Sharpe 0.63 not above buy-and-hold 1.06 (same windows); Sharpe 0.63 not above its own rule without RL 1.46 - the RL part added nothing; robustness 'costs_2x' not run; robustness 'other_seeds' not run
+- **r2_overlay_trend_ppo**: penalized Sharpe -0.17 (raw 0.48 - haircut 0.64) not > 1.0; Sharpe 0.48 not above buy-and-hold 1.06 (same windows); Sharpe 0.48 not above its own rule without RL 1.04 - the RL part added nothing; robustness 'costs_2x' not run; robustness 'other_seeds' not run
+- **r2_voltarget_pure_return_ppo**: penalized Sharpe 0.45 (raw 1.09 - haircut 0.64) not > 1.0; Sharpe 1.09 not above its own rule without RL 1.46 - the RL part added nothing; robustness 'other_seeds' not run (not run (failed base criteria))
 
 ## Walk-forward folds
 
@@ -103,41 +99,29 @@ Columns: *OOS return* = stitched walk-forward validation return after costs, mea
 
 ![overview](results/real/plots/overview.png)
 
-### dqn_base
-![dqn_base](results/real/plots/dqn_base.png)
+### r2_active_vs_bh_ppo
+![r2_active_vs_bh_ppo](results/real/plots/r2_active_vs_bh_ppo.png)
 
-### dqn_longshort
-![dqn_longshort](results/real/plots/dqn_longshort.png)
+### r2_dsr_ppo
+![r2_dsr_ppo](results/real/plots/r2_dsr_ppo.png)
 
-### dqn_strong_dd_penalty
-![dqn_strong_dd_penalty](results/real/plots/dqn_strong_dd_penalty.png)
+### r2_overlay_bh_dqn
+![r2_overlay_bh_dqn](results/real/plots/r2_overlay_bh_dqn.png)
 
-### ppo_base
-![ppo_base](results/real/plots/ppo_base.png)
+### r2_overlay_bh_dsr_ppo
+![r2_overlay_bh_dsr_ppo](results/real/plots/r2_overlay_bh_dsr_ppo.png)
 
-### ppo_cost_aware
-![ppo_cost_aware](results/real/plots/ppo_cost_aware.png)
+### r2_overlay_bh_ppo
+![r2_overlay_bh_ppo](results/real/plots/r2_overlay_bh_ppo.png)
 
-### ppo_half_position
-![ppo_half_position](results/real/plots/ppo_half_position.png)
+### r2_overlay_bh_weekly_ppo
+![r2_overlay_bh_weekly_ppo](results/real/plots/r2_overlay_bh_weekly_ppo.png)
 
-### ppo_longshort
-![ppo_longshort](results/real/plots/ppo_longshort.png)
+### r2_overlay_trend_ppo
+![r2_overlay_trend_ppo](results/real/plots/r2_overlay_trend_ppo.png)
 
-### ppo_pure_return
-![ppo_pure_return](results/real/plots/ppo_pure_return.png)
-
-### ppo_risk_penalty
-![ppo_risk_penalty](results/real/plots/ppo_risk_penalty.png)
-
-### ppo_strong_dd_penalty
-![ppo_strong_dd_penalty](results/real/plots/ppo_strong_dd_penalty.png)
-
-### ppo_trend_features
-![ppo_trend_features](results/real/plots/ppo_trend_features.png)
-
-### ppo_window5
-![ppo_window5](results/real/plots/ppo_window5.png)
+### r2_voltarget_pure_return_ppo
+![r2_voltarget_pure_return_ppo](results/real/plots/r2_voltarget_pure_return_ppo.png)
 
 ## Caveats
 

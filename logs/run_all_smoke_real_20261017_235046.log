@@ -1,0 +1,62 @@
+2026-10-17 23:50:46,392 INFO === quant-rl-bot run_all | mode=smoke_real | n_jobs=7 | log=D:\quant-rl-bot\logs\run_all_smoke_real_20261017_235046.log
+2026-10-17 23:50:46,480 INFO data SPY: 4223 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 23:50:46,481 INFO data QQQ: 4223 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 23:50:46,481 INFO data GLD: 4223 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 23:50:46,481 INFO data TLT: 4223 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 23:50:46,481 INFO data RELIANCE.NS: 4145 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 23:50:46,481 INFO data TCS.NS: 4145 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 23:50:46,482 INFO locked test set 2024-10-16 -> 2026-10-16 (not used by this script)
+2026-10-17 23:50:46,738 INFO self-check OK: features causal (truncation test)
+2026-10-17 23:50:46,738 INFO self-check OK: engine timing (buy&hold accounting, oracle detection)
+2026-10-17 23:50:46,739 INFO self-check OK: env P&L == engine P&L
+2026-10-17 23:50:46,739 INFO self-check OK: survival kill switch
+2026-10-17 23:50:46,748 INFO 12 experiments this run; 12 variants tried in total (all rounds)
+2026-10-17 23:50:46,835 INFO 2 walk-forward folds: first val 2016-01-04, last val 2018-01-03
+2026-10-17 23:50:46,864 INFO baseline buy_and_hold    return=+36.3% sharpe=2.25 survival=2/2
+2026-10-17 23:50:46,895 INFO baseline ma_crossover    return=+24.5% sharpe=1.78 survival=2/2
+2026-10-17 23:50:46,948 INFO baseline mean_reversion  return=+6.4% sharpe=0.70 survival=2/2
+2026-10-17 23:50:46,978 INFO baseline momentum        return=+19.5% sharpe=1.49 survival=2/2
+2026-10-17 23:50:46,979 INFO --- experiment 1/12: dqn_base (DQN) DQN, long/flat, default features
+2026-10-17 23:50:46,981 INFO [dqn_base] 0/4 runs to do (4 already done)
+2026-10-17 23:50:46,988 INFO --- experiment 2/12: dqn_longshort (DQN) DQN allowed to short (-1/0/+1)
+2026-10-17 23:50:46,989 INFO [dqn_longshort] 0/4 runs to do (4 already done)
+2026-10-17 23:50:46,995 INFO --- experiment 3/12: dqn_strong_dd_penalty (DQN) DQN, heavy drawdown penalties (survival first)
+2026-10-17 23:50:46,996 INFO [dqn_strong_dd_penalty] 0/4 runs to do (4 already done)
+2026-10-17 23:50:47,004 INFO --- experiment 4/12: ppo_base (PPO) PPO, long/flat, default features, small drawdown-increase penalty
+2026-10-17 23:50:47,005 INFO [ppo_base] 0/4 runs to do (4 already done)
+2026-10-17 23:50:47,012 INFO --- experiment 5/12: ppo_cost_aware (PPO) PPO, extra turnover penalty (3x cost in reward) to discourage churning
+2026-10-17 23:50:47,013 INFO [ppo_cost_aware] 0/4 runs to do (4 already done)
+2026-10-17 23:50:47,019 INFO --- experiment 6/12: ppo_half_position (PPO) PPO, can scale exposure 0 / 0.5 / 1
+2026-10-17 23:50:47,021 INFO [ppo_half_position] 0/4 runs to do (4 already done)
+2026-10-17 23:50:47,028 INFO --- experiment 7/12: ppo_longshort (PPO) PPO allowed to short (-1/0/+1)
+2026-10-17 23:50:47,030 INFO [ppo_longshort] 0/4 runs to do (4 already done)
+2026-10-17 23:50:47,037 INFO --- experiment 8/12: ppo_pure_return (PPO) PPO, reward = log return after costs only (no risk/drawdown penalty)
+2026-10-17 23:50:47,038 INFO [ppo_pure_return] 0/4 runs to do (4 already done)
+2026-10-17 23:50:47,045 INFO --- experiment 9/12: ppo_risk_penalty (PPO) PPO, mean-variance style reward (variance penalty)
+2026-10-17 23:50:47,047 INFO [ppo_risk_penalty] 0/4 runs to do (4 already done)
+2026-10-17 23:50:47,054 INFO --- experiment 10/12: ppo_strong_dd_penalty (PPO) PPO, heavy drawdown penalties + bigger death penalty (survival first)
+2026-10-17 23:50:47,056 INFO [ppo_strong_dd_penalty] 0/4 runs to do (4 already done)
+2026-10-17 23:50:47,063 INFO --- experiment 11/12: ppo_trend_features (PPO) PPO, trend-only features (momentum + MA ratios)
+2026-10-17 23:50:47,064 INFO [ppo_trend_features] 0/4 runs to do (4 already done)
+2026-10-17 23:50:47,072 INFO --- experiment 12/12: ppo_window5 (PPO) PPO, sees last 5 days of features
+2026-10-17 23:50:47,073 INFO [ppo_window5] 0/4 runs to do (4 already done)
+2026-10-17 23:50:47,082 INFO --- robustness for dqn_strong_dd_penalty: ['costs_2x', 'other_assets', 'other_seeds', 'shifted_dates']
+2026-10-17 23:50:47,200 INFO [dqn_strong_dd_penalty:costs_2x] 0/4 runs to do (4 already done)
+2026-10-17 23:50:47,207 INFO robustness dqn_strong_dd_penalty / costs_2x -> True
+2026-10-17 23:50:47,207 INFO [dqn_strong_dd_penalty:other_assets] 0/4 runs to do (4 already done)
+2026-10-17 23:50:47,214 INFO robustness dqn_strong_dd_penalty / other_assets -> True
+2026-10-17 23:50:47,214 INFO [dqn_strong_dd_penalty:other_seeds] 0/2 runs to do (2 already done)
+2026-10-17 23:50:47,218 INFO robustness dqn_strong_dd_penalty / other_seeds -> True
+2026-10-17 23:50:47,220 INFO [dqn_strong_dd_penalty:shifted_dates] 0/2 runs to do (2 already done)
+2026-10-17 23:50:47,223 INFO robustness dqn_strong_dd_penalty / shifted_dates -> False
+2026-10-17 23:50:47,224 INFO --- robustness for dqn_base: ['costs_2x', 'other_assets', 'other_seeds', 'shifted_dates']
+2026-10-17 23:50:47,310 INFO [dqn_base:costs_2x] 0/4 runs to do (4 already done)
+2026-10-17 23:50:47,316 INFO robustness dqn_base / costs_2x -> True
+2026-10-17 23:50:47,317 INFO [dqn_base:other_assets] 0/4 runs to do (4 already done)
+2026-10-17 23:50:47,324 INFO robustness dqn_base / other_assets -> True
+2026-10-17 23:50:47,325 INFO [dqn_base:other_seeds] 0/2 runs to do (2 already done)
+2026-10-17 23:50:47,328 INFO robustness dqn_base / other_seeds -> True
+2026-10-17 23:50:47,329 INFO [dqn_base:shifted_dates] 0/2 runs to do (2 already done)
+2026-10-17 23:50:47,332 INFO robustness dqn_base / shifted_dates -> True
+2026-10-17 23:50:48,887 INFO === done in 0.0 min. Report: D:\quant-rl-bot\RESULTS_SMOKE_REAL.md
+2026-10-17 23:50:48,887 INFO PASSING: none | SELECTED for final test: None

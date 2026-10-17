@@ -1,0 +1,108 @@
+2026-10-17 22:41:01,610 INFO === quant-rl-bot run_all | mode=smoke_real | n_jobs=7 | log=D:\quant-rl-bot\logs\run_all_smoke_real_20261017_224101.log
+2026-10-17 22:41:01,699 INFO data SPY: 4223 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 22:41:01,699 INFO data QQQ: 4223 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 22:41:01,699 INFO data GLD: 4223 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 22:41:01,699 INFO data TLT: 4223 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 22:41:01,699 INFO data RELIANCE.NS: 4145 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 22:41:01,699 INFO data TCS.NS: 4145 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 22:41:01,699 INFO locked test set 2024-10-16 -> 2026-10-16 (not used by this script)
+2026-10-17 22:41:01,946 INFO self-check OK: features causal (truncation test)
+2026-10-17 22:41:01,946 INFO self-check OK: engine timing (buy&hold accounting, oracle detection)
+2026-10-17 22:41:01,947 INFO self-check OK: env P&L == engine P&L
+2026-10-17 22:41:01,947 INFO self-check OK: survival kill switch
+2026-10-17 22:41:01,954 INFO 12 experiments this run; 12 variants tried in total (all rounds)
+2026-10-17 22:41:02,043 INFO 2 walk-forward folds: first val 2016-01-04, last val 2018-01-03
+2026-10-17 22:41:02,069 INFO baseline buy_and_hold    return=+36.3% sharpe=2.25 survival=2/2
+2026-10-17 22:41:02,099 INFO baseline ma_crossover    return=+24.5% sharpe=1.78 survival=2/2
+2026-10-17 22:41:02,151 INFO baseline mean_reversion  return=+6.4% sharpe=0.70 survival=2/2
+2026-10-17 22:41:02,179 INFO baseline momentum        return=+19.5% sharpe=1.49 survival=2/2
+2026-10-17 22:41:02,180 INFO --- experiment 1/12: dqn_base (DQN) DQN, long/flat, default features
+2026-10-17 22:41:02,181 INFO [dqn_base] 4/4 runs to do (0 already done)
+2026-10-17 22:41:08,913 INFO   [dqn_base] 1/4 fold0 seed0 ret=+5.2% sharpe=0.91 mdd=5.0% alive (5s)
+2026-10-17 22:41:08,916 INFO   [dqn_base] 2/4 fold0 seed1 ret=+5.8% sharpe=0.81 mdd=6.7% alive (5s)
+2026-10-17 22:41:08,936 INFO   [dqn_base] 3/4 fold1 seed0 ret=+4.1% sharpe=0.91 mdd=3.2% alive (5s)
+2026-10-17 22:41:08,963 INFO   [dqn_base] 4/4 fold1 seed1 ret=+24.3% sharpe=3.73 mdd=2.7% alive (5s)
+2026-10-17 22:41:09,709 INFO --- experiment 2/12: dqn_longshort (DQN) DQN allowed to short (-1/0/+1)
+2026-10-17 22:41:09,710 INFO [dqn_longshort] 4/4 runs to do (0 already done)
+2026-10-17 22:41:15,455 INFO   [dqn_longshort] 1/4 fold0 seed1 ret=-1.7% sharpe=-0.19 mdd=6.8% alive (4s)
+2026-10-17 22:41:15,465 INFO   [dqn_longshort] 2/4 fold0 seed0 ret=-1.6% sharpe=-0.46 mdd=3.0% alive (4s)
+2026-10-17 22:41:15,476 INFO   [dqn_longshort] 3/4 fold1 seed0 ret=-2.3% sharpe=-1.09 mdd=3.3% alive (4s)
+2026-10-17 22:41:15,552 INFO   [dqn_longshort] 4/4 fold1 seed1 ret=+17.9% sharpe=3.92 mdd=1.9% alive (4s)
+2026-10-17 22:41:16,256 INFO --- experiment 3/12: dqn_strong_dd_penalty (DQN) DQN, heavy drawdown penalties (survival first)
+2026-10-17 22:41:16,258 INFO [dqn_strong_dd_penalty] 4/4 runs to do (0 already done)
+2026-10-17 22:41:21,908 INFO   [dqn_strong_dd_penalty] 1/4 fold0 seed0 ret=+2.7% sharpe=0.46 mdd=6.3% alive (4s)
+2026-10-17 22:41:21,911 INFO   [dqn_strong_dd_penalty] 2/4 fold0 seed1 ret=+5.5% sharpe=0.80 mdd=6.6% alive (4s)
+2026-10-17 22:41:21,958 INFO   [dqn_strong_dd_penalty] 3/4 fold1 seed0 ret=+9.3% sharpe=2.47 mdd=1.5% alive (4s)
+2026-10-17 22:41:21,961 INFO   [dqn_strong_dd_penalty] 4/4 fold1 seed1 ret=+20.9% sharpe=3.64 mdd=2.0% alive (4s)
+2026-10-17 22:41:22,699 INFO --- experiment 4/12: ppo_base (PPO) PPO, long/flat, default features, small drawdown-increase penalty
+2026-10-17 22:41:22,700 INFO [ppo_base] 4/4 runs to do (0 already done)
+2026-10-17 22:41:28,702 INFO   [ppo_base] 1/4 fold0 seed0 ret=+2.4% sharpe=0.45 mdd=7.4% alive (5s)
+2026-10-17 22:41:28,729 INFO   [ppo_base] 2/4 fold1 seed0 ret=+7.3% sharpe=1.82 mdd=1.8% alive (5s)
+2026-10-17 22:41:28,735 INFO   [ppo_base] 3/4 fold1 seed1 ret=+10.1% sharpe=1.82 mdd=3.9% alive (5s)
+2026-10-17 22:41:28,751 INFO   [ppo_base] 4/4 fold0 seed1 ret=+1.3% sharpe=0.27 mdd=4.2% alive (5s)
+2026-10-17 22:41:29,495 INFO --- experiment 5/12: ppo_cost_aware (PPO) PPO, extra turnover penalty (3x cost in reward) to discourage churning
+2026-10-17 22:41:29,497 INFO [ppo_cost_aware] 4/4 runs to do (0 already done)
+2026-10-17 22:41:36,586 INFO   [ppo_cost_aware] 1/4 fold0 seed0 ret=+1.7% sharpe=0.33 mdd=6.8% alive (6s)
+2026-10-17 22:41:36,588 INFO   [ppo_cost_aware] 2/4 fold0 seed1 ret=+4.2% sharpe=0.83 mdd=3.6% alive (6s)
+2026-10-17 22:41:36,606 INFO   [ppo_cost_aware] 3/4 fold1 seed0 ret=+7.1% sharpe=1.74 mdd=1.7% alive (6s)
+2026-10-17 22:41:36,644 INFO   [ppo_cost_aware] 4/4 fold1 seed1 ret=+15.1% sharpe=2.53 mdd=2.9% alive (6s)
+2026-10-17 22:41:37,471 INFO --- experiment 6/12: ppo_half_position (PPO) PPO, can scale exposure 0 / 0.5 / 1
+2026-10-17 22:41:37,473 INFO [ppo_half_position] 4/4 runs to do (0 already done)
+2026-10-17 22:41:44,495 INFO   [ppo_half_position] 1/4 fold0 seed1 ret=-1.9% sharpe=-0.38 mdd=7.2% alive (5s)
+2026-10-17 22:41:44,511 INFO   [ppo_half_position] 2/4 fold1 seed0 ret=+8.9% sharpe=2.22 mdd=1.8% alive (5s)
+2026-10-17 22:41:44,518 INFO   [ppo_half_position] 3/4 fold0 seed0 ret=-1.2% sharpe=-0.19 mdd=5.9% alive (5s)
+2026-10-17 22:41:44,619 INFO   [ppo_half_position] 4/4 fold1 seed1 ret=+11.3% sharpe=2.29 mdd=2.1% alive (6s)
+2026-10-17 22:41:45,454 INFO --- experiment 7/12: ppo_longshort (PPO) PPO allowed to short (-1/0/+1)
+2026-10-17 22:41:45,455 INFO [ppo_longshort] 4/4 runs to do (0 already done)
+2026-10-17 22:41:52,321 INFO   [ppo_longshort] 1/4 fold0 seed1 ret=-11.0% sharpe=-1.64 mdd=12.2% alive (5s)
+2026-10-17 22:41:52,349 INFO   [ppo_longshort] 2/4 fold0 seed0 ret=+1.0% sharpe=0.22 mdd=5.0% alive (5s)
+2026-10-17 22:41:52,390 INFO   [ppo_longshort] 3/4 fold1 seed0 ret=-2.6% sharpe=-0.57 mdd=5.1% alive (5s)
+2026-10-17 22:41:52,419 INFO   [ppo_longshort] 4/4 fold1 seed1 ret=+3.0% sharpe=0.64 mdd=3.0% alive (5s)
+2026-10-17 22:41:53,164 INFO --- experiment 8/12: ppo_pure_return (PPO) PPO, reward = log return after costs only (no risk/drawdown penalty)
+2026-10-17 22:41:53,165 INFO [ppo_pure_return] 4/4 runs to do (0 already done)
+2026-10-17 22:41:59,852 INFO   [ppo_pure_return] 1/4 fold1 seed0 ret=+5.2% sharpe=1.30 mdd=1.4% alive (5s)
+2026-10-17 22:41:59,858 INFO   [ppo_pure_return] 2/4 fold0 seed0 ret=+0.3% sharpe=0.07 mdd=5.4% alive (5s)
+2026-10-17 22:41:59,866 INFO   [ppo_pure_return] 3/4 fold0 seed1 ret=+0.3% sharpe=0.08 mdd=8.9% alive (5s)
+2026-10-17 22:41:59,976 INFO   [ppo_pure_return] 4/4 fold1 seed1 ret=+20.2% sharpe=3.27 mdd=2.7% alive (5s)
+2026-10-17 22:42:00,789 INFO --- experiment 9/12: ppo_risk_penalty (PPO) PPO, mean-variance style reward (variance penalty)
+2026-10-17 22:42:00,791 INFO [ppo_risk_penalty] 4/4 runs to do (0 already done)
+2026-10-17 22:42:08,339 INFO   [ppo_risk_penalty] 1/4 fold0 seed0 ret=+2.5% sharpe=0.45 mdd=7.4% alive (6s)
+2026-10-17 22:42:08,355 INFO   [ppo_risk_penalty] 2/4 fold0 seed1 ret=+5.2% sharpe=1.02 mdd=5.1% alive (6s)
+2026-10-17 22:42:08,367 INFO   [ppo_risk_penalty] 3/4 fold1 seed0 ret=+7.3% sharpe=1.69 mdd=1.7% alive (6s)
+2026-10-17 22:42:08,501 INFO   [ppo_risk_penalty] 4/4 fold1 seed1 ret=+9.1% sharpe=1.58 mdd=3.6% alive (6s)
+2026-10-17 22:42:09,330 INFO --- experiment 10/12: ppo_strong_dd_penalty (PPO) PPO, heavy drawdown penalties + bigger death penalty (survival first)
+2026-10-17 22:42:09,332 INFO [ppo_strong_dd_penalty] 4/4 runs to do (0 already done)
+2026-10-17 22:42:16,452 INFO   [ppo_strong_dd_penalty] 1/4 fold1 seed0 ret=-2.3% sharpe=-0.72 mdd=3.5% alive (5s)
+2026-10-17 22:42:16,466 INFO   [ppo_strong_dd_penalty] 2/4 fold0 seed0 ret=-2.0% sharpe=-0.34 mdd=7.4% alive (5s)
+2026-10-17 22:42:16,488 INFO   [ppo_strong_dd_penalty] 3/4 fold0 seed1 ret=-0.4% sharpe=-0.04 mdd=5.6% alive (5s)
+2026-10-17 22:42:16,520 INFO   [ppo_strong_dd_penalty] 4/4 fold1 seed1 ret=+1.0% sharpe=0.26 mdd=6.5% alive (5s)
+2026-10-17 22:42:17,263 INFO --- experiment 11/12: ppo_trend_features (PPO) PPO, trend-only features (momentum + MA ratios)
+2026-10-17 22:42:17,264 INFO [ppo_trend_features] 4/4 runs to do (0 already done)
+2026-10-17 22:42:23,972 INFO   [ppo_trend_features] 1/4 fold1 seed1 ret=+8.6% sharpe=2.53 mdd=1.3% alive (5s)
+2026-10-17 22:42:23,991 INFO   [ppo_trend_features] 2/4 fold0 seed0 ret=+3.6% sharpe=0.82 mdd=4.3% alive (5s)
+2026-10-17 22:42:24,000 INFO   [ppo_trend_features] 3/4 fold1 seed0 ret=+0.6% sharpe=0.15 mdd=5.4% alive (5s)
+2026-10-17 22:42:24,004 INFO   [ppo_trend_features] 4/4 fold0 seed1 ret=+3.2% sharpe=0.54 mdd=7.4% alive (5s)
+2026-10-17 22:42:24,830 INFO --- experiment 12/12: ppo_window5 (PPO) PPO, sees last 5 days of features
+2026-10-17 22:42:24,832 INFO [ppo_window5] 4/4 runs to do (0 already done)
+2026-10-17 22:42:31,548 INFO   [ppo_window5] 1/4 fold0 seed0 ret=-1.6% sharpe=-0.23 mdd=7.8% alive (5s)
+2026-10-17 22:42:31,554 INFO   [ppo_window5] 2/4 fold0 seed1 ret=-2.3% sharpe=-0.32 mdd=7.5% alive (5s)
+2026-10-17 22:42:31,585 INFO   [ppo_window5] 3/4 fold1 seed1 ret=+5.7% sharpe=1.41 mdd=3.2% alive (5s)
+2026-10-17 22:42:31,596 INFO   [ppo_window5] 4/4 fold1 seed0 ret=+3.2% sharpe=0.67 mdd=3.4% alive (5s)
+2026-10-17 22:42:32,339 INFO --- robustness for dqn_strong_dd_penalty: ['costs_2x', 'other_assets', 'other_seeds', 'shifted_dates']
+2026-10-17 22:42:32,474 INFO [dqn_strong_dd_penalty:costs_2x] 4/4 runs to do (0 already done)
+2026-10-17 22:42:37,780 INFO   [dqn_strong_dd_penalty:costs_2x] 1/4 fold0 seed1 ret=+4.2% sharpe=0.62 mdd=6.7% alive (4s)
+2026-10-17 22:42:37,796 INFO   [dqn_strong_dd_penalty:costs_2x] 2/4 fold0 seed0 ret=+0.5% sharpe=0.12 mdd=7.2% alive (4s)
+2026-10-17 22:42:37,804 INFO   [dqn_strong_dd_penalty:costs_2x] 3/4 fold1 seed0 ret=+7.9% sharpe=2.10 mdd=1.5% alive (4s)
+2026-10-17 22:42:37,844 INFO   [dqn_strong_dd_penalty:costs_2x] 4/4 fold1 seed1 ret=+19.5% sharpe=3.40 mdd=2.1% alive (4s)
+2026-10-17 22:42:38,618 INFO robustness dqn_strong_dd_penalty / costs_2x -> True
+2026-10-17 22:42:38,618 INFO [dqn_strong_dd_penalty:other_assets] 4/4 runs to do (0 already done)
+2026-10-17 22:42:43,866 INFO   [dqn_strong_dd_penalty:other_assets] 1/4 fold0 seed1 ret=+10.9% sharpe=1.03 mdd=6.9% alive (4s)
+2026-10-17 22:42:43,868 INFO   [dqn_strong_dd_penalty:other_assets] 2/4 fold0 seed0 ret=+5.4% sharpe=0.74 mdd=8.7% alive (4s)
+2026-10-17 22:42:43,905 INFO   [dqn_strong_dd_penalty:other_assets] 3/4 fold1 seed1 ret=+17.4% sharpe=2.41 mdd=4.0% alive (4s)
+2026-10-17 22:42:43,945 INFO   [dqn_strong_dd_penalty:other_assets] 4/4 fold1 seed0 ret=+2.7% sharpe=0.78 mdd=2.6% alive (4s)
+2026-10-17 22:42:44,702 INFO robustness dqn_strong_dd_penalty / other_assets -> True
+2026-10-17 22:42:44,703 INFO [dqn_strong_dd_penalty:other_seeds] 2/2 runs to do (0 already done)
+2026-10-17 22:42:49,632 INFO   [dqn_strong_dd_penalty:other_seeds] 1/2 fold0 seed101 ret=+0.0% sharpe=0.00 mdd=0.0% alive (4s)
+2026-10-17 22:42:49,639 INFO   [dqn_strong_dd_penalty:other_seeds] 2/2 fold1 seed101 ret=+6.6% sharpe=3.32 mdd=0.5% alive (4s)
+2026-10-17 22:42:50,237 INFO robustness dqn_strong_dd_penalty / other_seeds -> True
+2026-10-17 22:42:50,239 INFO [dqn_strong_dd_penalty:shifted_dates] 2/2 runs to do (0 already done)

@@ -1,0 +1,113 @@
+2026-10-17 23:53:24,602 INFO === quant-rl-bot run_all | mode=smoke_real | n_jobs=7 | log=D:\quant-rl-bot\logs\run_all_smoke_real_20261017_235324.log
+2026-10-17 23:53:24,686 INFO data SPY: 4223 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 23:53:24,687 INFO data QQQ: 4223 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 23:53:24,687 INFO data GLD: 4223 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 23:53:24,687 INFO data TLT: 4223 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 23:53:24,687 INFO data RELIANCE.NS: 4145 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 23:53:24,687 INFO data TCS.NS: 4145 rows 2010-01-04 -> 2026-10-16 jumps=[]
+2026-10-17 23:53:24,688 INFO locked test set 2024-10-16 -> 2026-10-16 (not used by this script)
+2026-10-17 23:53:26,036 INFO self-check OK: features causal (truncation test)
+2026-10-17 23:53:26,036 INFO self-check OK: engine timing (buy&hold accounting, oracle detection)
+2026-10-17 23:53:26,037 INFO self-check OK: env P&L == engine P&L
+2026-10-17 23:53:26,037 INFO self-check OK: overlay: causal base/benchmark, env == engine with band + weekly decisions
+2026-10-17 23:53:26,037 INFO self-check OK: survival kill switch
+2026-10-17 23:53:26,046 INFO 8 experiments this run; 20 variants tried in total (all rounds)
+2026-10-17 23:53:26,134 INFO 2 walk-forward folds: first val 2016-01-04, last val 2018-01-03
+2026-10-17 23:53:26,161 INFO baseline buy_and_hold    return=+36.3% sharpe=2.25 survival=2/2
+2026-10-17 23:53:26,189 INFO baseline ma_crossover    return=+24.5% sharpe=1.78 survival=2/2
+2026-10-17 23:53:26,281 INFO baseline mean_reversion  return=+6.4% sharpe=0.70 survival=2/2
+2026-10-17 23:53:26,306 INFO baseline momentum        return=+19.5% sharpe=1.49 survival=2/2
+2026-10-17 23:53:26,336 INFO baseline vol_target      return=+25.7% sharpe=2.34 survival=2/2
+2026-10-17 23:53:26,369 INFO baseline trend_vol_target return=+14.8% sharpe=1.62 survival=2/2
+2026-10-17 23:53:26,369 INFO --- experiment 1/8: r2_active_vs_bh_ppo (PPO) PPO, positions 0/0.5/1, reward = return minus buy-and-hold return, drawdown penalised only beyond 8%
+2026-10-17 23:53:26,406 INFO [r2_active_vs_bh_ppo] 4/4 runs to do (0 already done)
+2026-10-17 23:53:32,210 INFO   [r2_active_vs_bh_ppo] 1/4 fold0 seed1 ret=-3.9% sharpe=-0.76 mdd=6.1% alive (4s)
+2026-10-17 23:53:32,226 INFO   [r2_active_vs_bh_ppo] 2/4 fold0 seed0 ret=-0.7% sharpe=-0.15 mdd=4.4% alive (4s)
+2026-10-17 23:53:32,245 INFO   [r2_active_vs_bh_ppo] 3/4 fold1 seed0 ret=+16.1% sharpe=3.35 mdd=2.1% alive (4s)
+2026-10-17 23:53:32,267 INFO   [r2_active_vs_bh_ppo] 4/4 fold1 seed1 ret=+5.2% sharpe=1.47 mdd=1.8% alive (4s)
+2026-10-17 23:53:32,958 INFO --- experiment 2/8: r2_dsr_ppo (PPO) PPO without overlay, positions 0/0.5/1, reward = differential Sharpe ratio
+2026-10-17 23:53:32,992 INFO [r2_dsr_ppo] 4/4 runs to do (0 already done)
+2026-10-17 23:53:38,649 INFO   [r2_dsr_ppo] 1/4 fold0 seed0 ret=-0.6% sharpe=-0.06 mdd=6.2% alive (4s)
+2026-10-17 23:53:38,656 INFO   [r2_dsr_ppo] 2/4 fold1 seed0 ret=+5.8% sharpe=1.23 mdd=2.4% alive (4s)
+2026-10-17 23:53:38,663 INFO   [r2_dsr_ppo] 3/4 fold0 seed1 ret=+1.5% sharpe=0.27 mdd=8.2% alive (4s)
+2026-10-17 23:53:38,756 INFO   [r2_dsr_ppo] 4/4 fold1 seed1 ret=+5.2% sharpe=1.74 mdd=1.6% alive (4s)
+2026-10-17 23:53:39,468 INFO --- experiment 3/8: r2_overlay_bh_dqn (DQN) Same as r2_overlay_bh_ppo but DQN
+2026-10-17 23:53:39,502 INFO [r2_overlay_bh_dqn] 4/4 runs to do (0 already done)
+2026-10-17 23:53:44,847 INFO   [r2_overlay_bh_dqn] 1/4 fold1 seed1 ret=+10.4% sharpe=2.94 mdd=1.6% alive (4s)
+2026-10-17 23:53:44,863 INFO   [r2_overlay_bh_dqn] 2/4 fold1 seed0 ret=+18.7% sharpe=3.79 mdd=1.9% alive (4s)
+2026-10-17 23:53:44,875 INFO   [r2_overlay_bh_dqn] 3/4 fold0 seed1 ret=+0.6% sharpe=0.17 mdd=5.3% alive (4s)
+2026-10-17 23:53:44,888 INFO   [r2_overlay_bh_dqn] 4/4 fold0 seed0 ret=+1.0% sharpe=0.25 mdd=6.1% alive (4s)
+2026-10-17 23:53:45,637 INFO --- experiment 4/8: r2_overlay_bh_dsr_ppo (PPO) PPO overlay on vol-targeted buy-and-hold; reward = differential Sharpe ratio
+2026-10-17 23:53:45,672 INFO [r2_overlay_bh_dsr_ppo] 4/4 runs to do (0 already done)
+2026-10-17 23:53:51,632 INFO   [r2_overlay_bh_dsr_ppo] 1/4 fold0 seed0 ret=+0.5% sharpe=0.13 mdd=5.8% alive (4s)
+2026-10-17 23:53:51,643 INFO   [r2_overlay_bh_dsr_ppo] 2/4 fold1 seed0 ret=-0.0% sharpe=0.01 mdd=2.8% alive (4s)
+2026-10-17 23:53:51,655 INFO   [r2_overlay_bh_dsr_ppo] 3/4 fold1 seed1 ret=+11.6% sharpe=2.95 mdd=1.5% alive (4s)
+2026-10-17 23:53:51,666 INFO   [r2_overlay_bh_dsr_ppo] 4/4 fold0 seed1 ret=-0.7% sharpe=-0.22 mdd=4.4% alive (4s)
+2026-10-17 23:53:52,402 INFO --- experiment 5/8: r2_overlay_bh_ppo (PPO) PPO overlay on vol-targeted buy-and-hold; reward = beat the rule; drawdown penalised only beyond 8%
+2026-10-17 23:53:52,439 INFO [r2_overlay_bh_ppo] 4/4 runs to do (0 already done)
+2026-10-17 23:53:58,064 INFO   [r2_overlay_bh_ppo] 1/4 fold1 seed0 ret=+4.5% sharpe=1.82 mdd=1.7% alive (4s)
+2026-10-17 23:53:58,090 INFO   [r2_overlay_bh_ppo] 2/4 fold0 seed0 ret=+2.3% sharpe=0.78 mdd=3.7% alive (4s)
+2026-10-17 23:53:58,115 INFO   [r2_overlay_bh_ppo] 3/4 fold0 seed1 ret=+0.8% sharpe=0.33 mdd=4.4% alive (4s)
+2026-10-17 23:53:58,143 INFO   [r2_overlay_bh_ppo] 4/4 fold1 seed1 ret=+13.7% sharpe=3.01 mdd=2.2% alive (4s)
+2026-10-17 23:53:58,902 INFO --- experiment 6/8: r2_overlay_bh_weekly_ppo (PPO) r2_overlay_bh_ppo but the agent decides only every 5 days
+2026-10-17 23:53:58,941 INFO [r2_overlay_bh_weekly_ppo] 4/4 runs to do (0 already done)
+2026-10-17 23:54:05,252 INFO   [r2_overlay_bh_weekly_ppo] 1/4 fold0 seed0 ret=+2.5% sharpe=1.10 mdd=1.3% alive (5s)
+2026-10-17 23:54:05,261 INFO   [r2_overlay_bh_weekly_ppo] 2/4 fold0 seed1 ret=+3.1% sharpe=1.28 mdd=2.1% alive (5s)
+2026-10-17 23:54:05,300 INFO   [r2_overlay_bh_weekly_ppo] 3/4 fold1 seed0 ret=+5.8% sharpe=2.67 mdd=0.7% alive (5s)
+2026-10-17 23:54:05,341 INFO   [r2_overlay_bh_weekly_ppo] 4/4 fold1 seed1 ret=+1.8% sharpe=1.01 mdd=1.5% alive (5s)
+2026-10-17 23:54:06,152 INFO --- experiment 7/8: r2_overlay_trend_ppo (PPO) PPO overlay on vol-targeted 12-1 momentum (trend) rule; reward = beat the rule
+2026-10-17 23:54:06,201 INFO [r2_overlay_trend_ppo] 4/4 runs to do (0 already done)
+2026-10-17 23:54:13,215 INFO   [r2_overlay_trend_ppo] 1/4 fold1 seed0 ret=+2.4% sharpe=1.38 mdd=0.8% alive (5s)
+2026-10-17 23:54:13,223 INFO   [r2_overlay_trend_ppo] 2/4 fold0 seed0 ret=-7.4% sharpe=-3.10 mdd=7.9% alive (5s)
+2026-10-17 23:54:13,237 INFO   [r2_overlay_trend_ppo] 3/4 fold0 seed1 ret=-2.1% sharpe=-0.78 mdd=3.3% alive (5s)
+2026-10-17 23:54:13,314 INFO   [r2_overlay_trend_ppo] 4/4 fold1 seed1 ret=+4.9% sharpe=2.21 mdd=0.8% alive (5s)
+2026-10-17 23:54:14,084 INFO --- experiment 8/8: r2_voltarget_pure_return_ppo (PPO) Round-1 ppo_pure_return reward, but positions sized by volatility targeting
+2026-10-17 23:54:14,125 INFO [r2_voltarget_pure_return_ppo] 4/4 runs to do (0 already done)
+2026-10-17 23:54:20,539 INFO   [r2_voltarget_pure_return_ppo] 1/4 fold1 seed0 ret=+9.5% sharpe=2.31 mdd=2.0% alive (5s)
+2026-10-17 23:54:20,540 INFO   [r2_voltarget_pure_return_ppo] 2/4 fold1 seed1 ret=+5.9% sharpe=2.57 mdd=1.0% alive (5s)
+2026-10-17 23:54:20,561 INFO   [r2_voltarget_pure_return_ppo] 3/4 fold0 seed0 ret=-0.4% sharpe=-0.15 mdd=4.7% alive (5s)
+2026-10-17 23:54:20,613 INFO   [r2_voltarget_pure_return_ppo] 4/4 fold0 seed1 ret=+0.1% sharpe=0.05 mdd=3.7% alive (5s)
+2026-10-17 23:54:21,377 INFO --- robustness for r2_overlay_bh_dqn: ['costs_2x', 'other_assets', 'other_seeds', 'shifted_dates']
+2026-10-17 23:54:21,478 INFO [r2_overlay_bh_dqn:costs_2x] 4/4 runs to do (0 already done)
+2026-10-17 23:54:26,110 INFO   [r2_overlay_bh_dqn:costs_2x] 1/4 fold0 seed0 ret=-0.9% sharpe=-0.18 mdd=6.6% alive (3s)
+2026-10-17 23:54:26,121 INFO   [r2_overlay_bh_dqn:costs_2x] 2/4 fold0 seed1 ret=-3.8% sharpe=-0.99 mdd=6.6% alive (3s)
+2026-10-17 23:54:26,140 INFO   [r2_overlay_bh_dqn:costs_2x] 3/4 fold1 seed0 ret=+17.9% sharpe=3.64 mdd=2.0% alive (3s)
+2026-10-17 23:54:26,158 INFO   [r2_overlay_bh_dqn:costs_2x] 4/4 fold1 seed1 ret=+5.8% sharpe=1.67 mdd=2.0% alive (3s)
+2026-10-17 23:54:26,884 INFO robustness r2_overlay_bh_dqn / costs_2x -> True
+2026-10-17 23:54:26,884 INFO [r2_overlay_bh_dqn:other_assets] 4/4 runs to do (0 already done)
+2026-10-17 23:54:31,559 INFO   [r2_overlay_bh_dqn:other_assets] 1/4 fold0 seed1 ret=-1.8% sharpe=-0.28 mdd=5.2% alive (3s)
+2026-10-17 23:54:31,565 INFO   [r2_overlay_bh_dqn:other_assets] 2/4 fold1 seed0 ret=+22.1% sharpe=3.14 mdd=3.2% alive (3s)
+2026-10-17 23:54:31,566 INFO   [r2_overlay_bh_dqn:other_assets] 3/4 fold0 seed0 ret=+2.0% sharpe=0.30 mdd=5.8% alive (3s)
+2026-10-17 23:54:31,607 INFO   [r2_overlay_bh_dqn:other_assets] 4/4 fold1 seed1 ret=+10.3% sharpe=2.10 mdd=2.9% alive (3s)
+2026-10-17 23:54:32,336 INFO robustness r2_overlay_bh_dqn / other_assets -> True
+2026-10-17 23:54:32,337 INFO [r2_overlay_bh_dqn:other_seeds] 2/2 runs to do (0 already done)
+2026-10-17 23:54:40,190 INFO   [r2_overlay_bh_dqn:other_seeds] 1/2 fold1 seed101 ret=+9.9% sharpe=4.07 mdd=1.2% alive (6s)
+2026-10-17 23:54:40,213 INFO   [r2_overlay_bh_dqn:other_seeds] 2/2 fold0 seed101 ret=-0.7% sharpe=-0.26 mdd=4.3% alive (6s)
+2026-10-17 23:54:41,048 INFO robustness r2_overlay_bh_dqn / other_seeds -> True
+2026-10-17 23:54:41,052 INFO [r2_overlay_bh_dqn:shifted_dates] 2/2 runs to do (0 already done)
+2026-10-17 23:54:46,184 INFO   [r2_overlay_bh_dqn:shifted_dates] 1/2 fold1 seed0 ret=-0.9% sharpe=-0.25 mdd=5.1% alive (4s)
+2026-10-17 23:54:46,184 INFO   [r2_overlay_bh_dqn:shifted_dates] 2/2 fold0 seed0 ret=-1.2% sharpe=-0.27 mdd=6.2% alive (4s)
+2026-10-17 23:54:46,917 INFO robustness r2_overlay_bh_dqn / shifted_dates -> False
+2026-10-17 23:54:46,919 INFO --- robustness for r2_overlay_bh_ppo: ['costs_2x', 'other_assets', 'other_seeds', 'shifted_dates']
+2026-10-17 23:54:47,004 INFO [r2_overlay_bh_ppo:costs_2x] 4/4 runs to do (0 already done)
+2026-10-17 23:54:52,239 INFO   [r2_overlay_bh_ppo:costs_2x] 1/4 fold0 seed0 ret=+0.4% sharpe=0.15 mdd=4.5% alive (4s)
+2026-10-17 23:54:52,259 INFO   [r2_overlay_bh_ppo:costs_2x] 2/4 fold0 seed1 ret=-1.5% sharpe=-0.58 mdd=5.5% alive (4s)
+2026-10-17 23:54:52,267 INFO   [r2_overlay_bh_ppo:costs_2x] 3/4 fold1 seed0 ret=-0.5% sharpe=-0.21 mdd=3.3% alive (4s)
+2026-10-17 23:54:52,339 INFO   [r2_overlay_bh_ppo:costs_2x] 4/4 fold1 seed1 ret=+8.3% sharpe=1.86 mdd=2.7% alive (4s)
+2026-10-17 23:54:53,263 INFO robustness r2_overlay_bh_ppo / costs_2x -> False
+2026-10-17 23:54:53,264 INFO [r2_overlay_bh_ppo:other_assets] 4/4 runs to do (0 already done)
+2026-10-17 23:54:58,392 INFO   [r2_overlay_bh_ppo:other_assets] 1/4 fold0 seed0 ret=+0.8% sharpe=0.20 mdd=3.1% alive (4s)
+2026-10-17 23:54:58,393 INFO   [r2_overlay_bh_ppo:other_assets] 2/4 fold1 seed0 ret=+6.9% sharpe=2.10 mdd=1.6% alive (4s)
+2026-10-17 23:54:58,433 INFO   [r2_overlay_bh_ppo:other_assets] 3/4 fold1 seed1 ret=+14.9% sharpe=2.27 mdd=3.6% alive (4s)
+2026-10-17 23:54:58,435 INFO   [r2_overlay_bh_ppo:other_assets] 4/4 fold0 seed1 ret=+1.1% sharpe=0.32 mdd=3.0% alive (4s)
+2026-10-17 23:54:59,420 INFO robustness r2_overlay_bh_ppo / other_assets -> True
+2026-10-17 23:54:59,421 INFO [r2_overlay_bh_ppo:other_seeds] 2/2 runs to do (0 already done)
+2026-10-17 23:55:04,501 INFO   [r2_overlay_bh_ppo:other_seeds] 1/2 fold1 seed101 ret=+9.1% sharpe=3.19 mdd=1.1% alive (4s)
+2026-10-17 23:55:04,502 INFO   [r2_overlay_bh_ppo:other_seeds] 2/2 fold0 seed101 ret=-3.1% sharpe=-1.40 mdd=3.7% alive (4s)
+2026-10-17 23:55:05,199 INFO robustness r2_overlay_bh_ppo / other_seeds -> True
+2026-10-17 23:55:05,201 INFO [r2_overlay_bh_ppo:shifted_dates] 2/2 runs to do (0 already done)
+2026-10-17 23:55:10,512 INFO   [r2_overlay_bh_ppo:shifted_dates] 1/2 fold1 seed0 ret=+1.2% sharpe=0.55 mdd=1.7% alive (4s)
+2026-10-17 23:55:10,517 INFO   [r2_overlay_bh_ppo:shifted_dates] 2/2 fold0 seed0 ret=-2.6% sharpe=-0.71 mdd=5.3% alive (4s)
+2026-10-17 23:55:11,223 INFO robustness r2_overlay_bh_ppo / shifted_dates -> False
+2026-10-17 23:55:12,449 INFO === done in 1.8 min. Report: D:\quant-rl-bot\RESULTS_SMOKE_REAL.md
+2026-10-17 23:55:12,449 INFO PASSING: none | SELECTED for final test: None

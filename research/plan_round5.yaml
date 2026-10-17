@@ -132,6 +132,11 @@ confirmation_criteria:
   excess_sharpe_gt_benchmark: true     # strategy beats the market at equal (10%) risk
   excess_return_gt: 0.0                # earns more than T-bills after costs
   survival_rate_ge: 0.8
+  # Tightened BEFORE any real-data run (separate commit): "beats the market" twice is a coin
+  # flipped twice - a strategy with zero edge would pass ~25% of the time. On the 36-year US
+  # hold-out the advantage must also be significant (paired block bootstrap), which cuts the
+  # luck-pass rate to roughly 5%.
+  us_p_value_lt: 0.10
 
 # ---------------------------------------------------------------------
 # Forward paper trading of finalists (tradeable ETF stand-ins; via LRS for an Indian investor)

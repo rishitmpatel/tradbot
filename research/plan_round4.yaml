@@ -1,0 +1,158 @@
+# =====================================================================
+# ROUND 4 PRE-REGISTERED RESEARCH PLAN
+# Written and committed BEFORE any round-4 code ran on real data.
+# research.py records this file's hash on the first real run; editing a registered
+# hypothesis afterwards turns it into a NEW, EXPLORATORY trial (and is flagged in reports).
+# The laptop agent must never edit this file.
+# =====================================================================
+round: 4
+
+# ---------------------------------------------------------------------
+# Data
+# ---------------------------------------------------------------------
+universes:
+  # EXPLORATION universe (E): broad multi-asset ETFs. Period 2007-01 -> day before the
+  # locked test set. Partly seen before (SPY, GLD, TLT and the 2007-2024 years), which is
+  # fine for exploration: nothing here is a hold-out.
+  exploration:
+    start: "2004-01-01"            # history for warm-up (12-month lookbacks)
+    eval_start: "2007-01-01"       # first one-year evaluation window
+    eval_end: null                 # null = day before the locked test set (from data/raw/split_lock)
+    benchmarks: {equity: SPY, bonds: TLT}
+    tickers:
+      SPY: us_large_equity
+      IWM: us_small_equity
+      EFA: intl_developed_equity
+      EEM: emerging_equity
+      TLT: long_treasury
+      IEF: intermediate_treasury
+      TIP: inflation_linked
+      LQD: investment_grade_credit
+      HYG: high_yield_credit
+      GLD: gold
+      DBC: broad_commodities
+      VNQ: us_reits
+      UUP: us_dollar
+  # CONFIRMATION universe (C): different instruments (mutual funds) AND a different period
+  # (1991-2006), disjoint from everything ever evaluated in this project. Only used for the
+  # <= 3 finalists, and only after the owner approves it (research.confirmation_approved).
+  confirmation:
+    start: "1988-01-01"
+    eval_start: "1991-01-01"
+    eval_end: "2006-12-31"
+    benchmarks: {equity: VFINX, bonds: VUSTX}
+    min_live_assets: 5             # skip windows where fewer funds have data
+    tickers:
+      VFINX: us_large_equity
+      NAESX: us_small_equity
+      VWIGX: intl_developed_equity
+      VEIEX: emerging_equity
+      VUSTX: long_treasury
+      VFITX: intermediate_treasury
+      VWESX: investment_grade_credit
+      VWEHX: high_yield_credit
+      VGPMX: gold_miners_proxy
+      FRESX: us_reits
+  risk_free: "^IRX"                # 13-week T-bill yield (%), used for trend filter and financing
+
+# ---------------------------------------------------------------------
+# Common rules (same for every hypothesis)
+# ---------------------------------------------------------------------
+common:
+  rebalance: monthly               # decide at the close of the FIRST trading day of each month
+  vol_window: 60                   # days, for volatility / covariance estimates
+  costs_bps: 15                    # per unit of weight traded (same as rounds 1-3)
+  borrow_spread: 0.01              # leverage pays T-bill + 1% a year
+  credit_cash_interest: false      # ACTIVE design: idle cash earns 0 (see PROPOSALS.md P5)
+  max_drawdown_kill: 0.15          # same survival rule, fresh 100,000 every one-year window
+  window_years: 1
+
+# ---------------------------------------------------------------------
+# Hypotheses (each one = one trial, counted in the ledger)
+# ---------------------------------------------------------------------
+hypotheses:
+  H0_incumbent_vol_target:
+    rule: per_asset_vol_target
+    params: {target: 0.12, window: 20, band: 0.02, rebalance: daily}
+    reason: >
+      Control. Round 3's best rule (per-asset vol targeting) moved to the broad universe.
+      Tells us whether its edge was specific to the 6-asset basket.
+    neighborhood: [{target: 0.09}, {target: 0.15}, {window: 40}]
+
+  H1_equal_weight:
+    rule: equal_weight
+    params: {}
+    reason: >
+      Diversification is the one free lunch. 1/N across asset classes is famously hard to
+      beat out of sample (DeMiguel, Garlappi & Uppal 2009). Every smarter rule must beat it.
+    neighborhood: []
+
+  H2_inverse_vol:
+    rule: inverse_vol
+    params: {window: 60}
+    reason: >
+      Naive risk parity: each asset contributes similar risk, so calm assets (bonds) are not
+      drowned out by volatile ones (equities, commodities). Low-risk assets have historically
+      earned more per unit of risk (Asness, Frazzini & Pedersen 2012).
+    neighborhood: [{window: 20}, {window: 120}]
+
+  H3_trend_following:
+    rule: trend
+    params: {lookback: 252, window: 60}
+    reason: >
+      Time-series momentum: hold an asset (inverse-vol weighted) only while its 12-month
+      return beats T-bills, otherwise hold cash. Documented across asset classes for over a
+      century (Moskowitz, Ooi & Pedersen 2012; Hurst, Ooi & Pedersen 2017; Faber 2007).
+      Economic story: slow-moving capital and herding make trends persist; it pays most
+      in long bear markets (2000-02, 2008), exactly where buy-and-hold dies.
+    neighborhood: [{lookback: 126}, {lookback: 189}, {window: 120}]
+
+  H4_dual_momentum:
+    rule: xs_momentum
+    params: {lookback: 252, skip: 21, top_frac: 0.34, window: 60}
+    reason: >
+      Cross-sectional momentum across asset classes: hold the top third by 12-1 month return
+      (inverse-vol weighted), each only if it also beats T-bills (Asness, Moskowitz &
+      Pedersen 2013 "Value and momentum everywhere"; Antonacci 2014). Different return source
+      from H3: relative, not absolute, strength.
+    neighborhood: [{lookback: 126}, {top_frac: 0.5}]
+
+  H5_ensemble:
+    rule: ensemble
+    params: {members: [H2_inverse_vol, H3_trend_following, H4_dual_momentum]}
+    reason: >
+      Combine three rules with different return sources (risk premia, absolute trend,
+      relative trend). If their returns are not highly correlated, the mix has a higher
+      Sharpe than the average member - diversification across strategies, not just assets.
+    neighborhood: []
+
+  H6_ensemble_vol_target_10:
+    rule: vol_target_portfolio
+    params: {base: H5_ensemble, target: 0.10, max_gross: 1.5, window: 60}
+    reason: >
+      The profit question. Return = Sharpe x risk taken. H5 alone runs well below 10%
+      volatility, so it earns little even with a good Sharpe. Scaling the whole ensemble to
+      10% predicted volatility (leverage up to 1.5x, paying T-bill + 1%) turns Sharpe into
+      return. 10% is chosen a priori from the kill switch: with a 15% drawdown limit, much
+      more than ~10% volatility makes a one-year death likely.
+    neighborhood: [{target: 0.08}, {target: 0.12}]
+
+# ---------------------------------------------------------------------
+# Pre-registered selection of finalists (uses EXPLORATION results only)
+# ---------------------------------------------------------------------
+finalist_selection:
+  max_finalists: 3
+  must: [survival_rate >= 0.8, costs_2x_return > 0]
+  rank_by: exploration_sharpe      # stitched Sharpe over all exploration windows
+
+# ---------------------------------------------------------------------
+# Pre-registered confirmation criteria (applied once, on universe C, to finalists only)
+# ---------------------------------------------------------------------
+confirmation_criteria:
+  return_after_costs_gt: 0.0
+  sharpe_gt_benchmark_60_40: true
+  survival_rate_ge: 0.8
+  max_drawdown_le: 0.25
+
+# Benchmarks (not candidates, not trials): buy-and-hold of the equity benchmark, and 60/40
+# equity/bonds rebalanced monthly - the default portfolio a sensible investor would hold.

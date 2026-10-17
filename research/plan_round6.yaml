@@ -1,0 +1,163 @@
+# =====================================================================
+# ROUND 6 PRE-REGISTERED RESEARCH PLAN
+# Written and committed BEFORE any round-6 code ran on real data.
+# overnight_research.py records this file's hash on the first real run. Hypotheses added or
+# changed afterwards become NEW, EXPLORATORY trials (counted and labelled in reports).
+# The laptop agent must never edit this file.
+#
+# Question: is there anything an Indian retail investor (small capital, free data, NSE or LRS)
+# can trade that makes REAL profit after costs and tax, beyond holding an index fund?
+# Trials before this round: 41. This plan adds 5 -> 46.
+# =====================================================================
+round: 6
+
+# ---------------------------------------------------------------------
+# Data. Nothing on or after the locked test set's first day is ever loaded (asserted in code).
+# ---------------------------------------------------------------------
+data:
+  ohlc_cache_dir: data/ohlc            # Yahoo daily open/high/low/close, split+dividend adjusted
+  ohlc_start: "1993-01-01"
+  overnight_exploration: [SPY]         # US: 1993 -> locked test start
+  overnight_confirmation:              # India: NEVER used by this project in any form
+    NIFTYBEES.NS: {required: true}     # what you would actually trade
+    ^NSEI: {required: false}           # index; free index opens are often fake (= previous close)
+  us_rf_daily: F-F_Research_Data_Factors_daily_CSV.zip    # Ken French, already cached by round 5
+  india_rf_annual: 0.065               # ASSUMED: rough average 91-day T-bill / liquid fund 2010-2024
+  french_base_url: "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
+  momentum_exploration:                # US, same files as round 5
+    factors_monthly: F-F_Research_Data_Factors_CSV.zip
+    size_momentum_monthly: 6_Portfolios_ME_Prior_12_2_CSV.zip
+  momentum_confirmation:               # Emerging Markets: NEVER loaded by this project
+    Emerging:                          # file names verified on the library page 2026-10-17
+      required: true
+      factors_monthly: Emerging_5_Factors_CSV.zip
+      size_momentum_monthly: Emerging_Markets_6_Portfolios_ME_Prior_12_2_CSV.zip
+
+periods:
+  overnight_exploration: {start: "1993-02-01"}           # end = day before the locked test set
+  overnight_confirmation: {start: "2009-01-01"}          # or first available day; same end
+  momentum_exploration: {start: "1963-07"}               # end = month before the locked test set
+  momentum_confirmation: {start: "1991-07"}
+
+# ---------------------------------------------------------------------
+# Overnight rules (daily)
+# ---------------------------------------------------------------------
+overnight:
+  # Strategy return on day t = adjusted open_t / adjusted close_(t-1) - 1 - round-trip cost.
+  # Money sits uninvested (earns nothing) during the trading day: that is what a retail account gets.
+  # Benchmark = buy and hold the same fund, close to close (one buy, no further costs).
+  kill_switch: 0.15                    # same survival rule: fresh 100,000 per calendar year, dead below 85% of peak
+  stress_gap: -0.02                    # stress fills: on days the adjusted gap is <= -2%, you sell at the day's LOW
+  reliability:                         # free open prices must pass ALL of these or the data set is UNRELIABLE
+    max_share_open_eq_prev_close: 0.05
+    max_share_open_outside_range: 0.01
+    max_share_missing: 0.01
+  costs:
+    us_lrs:                            # SPY via an LRS platform (exploration)
+      round_trip_bps: 2.0              # ASSUMED: SPY spread ~1 cent, SEC fee ~0.3 bp on sells, no commission
+      tax: {rate: 0.30, cess: 0.04}    # foreign fund held < 24 months: slab rate (30% assumed)
+    india:                             # NIFTYBEES on NSE, discount broker, delivery / BTST (confirmation)
+      buy_pct: 0.00015                 # stamp duty 0.015% on buys
+      sell_pct: 0.00001                # STT 0.001% on ETF sells
+      both_pct: 0.0000307              # NSE transaction charge 0.00307%
+      sebi_pct: 0.000001               # SEBI Rs 10 per crore
+      gst: 0.18                        # on exchange + SEBI charges (brokerage 0)
+      dp_per_sell_rs: 15.34            # depository charge per scrip per day you sell (Zerodha, incl. GST)
+      slippage_bps_per_side: 1.0       # ASSUMED: about 2 ticks of Rs 0.01 on a ~Rs 250 unit
+      capital_rs: 1000000              # Rs 10 lakh for the verdict; Rs 1 lakh and Rs 1 crore also reported
+      tax_main: {rate: 0.20, cess: 0.04}       # listed equity ETF held < 12 months: STCG 20%
+      tax_alt: {rate: 0.30, cess: 0.04}        # if treated as business income at a 30% slab (reported)
+
+# ---------------------------------------------------------------------
+# Momentum rules (monthly) - identical to round 5's common block
+# ---------------------------------------------------------------------
+momentum_common:
+  vol_target: 0.10
+  vol_lookback_months: 12
+  max_gross: 1.0
+  switch_cost_bps: 15
+  sleeve_drag_bps_per_year: {market: 5, big_momentum: 80}
+  kill_switch: 0.15
+
+# ---------------------------------------------------------------------
+# Hypotheses (each = one trial in the ledger)
+# ---------------------------------------------------------------------
+hypotheses:
+  R6_H1_overnight_spy:
+    family: overnight
+    ticker: SPY
+    reason: >
+      Overnight drift: in US stocks nearly all of the equity premium since 1993 was earned from
+      close to next open; the open-to-close part was about zero (Cliff-Cooper-Gulen 2008 [title
+      from memory]; Kelly-Clark 2011 J. Asset Mgmt; Lou-Polk-Skouras 2019 JFE; Boyarchenko-Larsen-
+      Whelan 2023 RFS). Holding only overnight would earn the premium with half the time at risk.
+      Doubts written down BEFORE testing: (1) a daily round trip costs money and the NY Fed
+      (Liberty Street, 1 Jul 2026) reports the drift has been ~zero since 2021; (2) overnight ETFs
+      (NSPY/NIWM) closed in 2022 after 14 months; (3) on stress days (24 Aug 2015) opening prices
+      were far below fair value, so a 'sell at the open' fill can be terrible.
+  R6_H2_momentum_crash_guard:
+    family: momentum
+    sleeve: big_momentum
+    guard: {signal: market, lookback_months: 24, fallback: market}
+    reason: >
+      Round 5's best survivor (large-cap momentum) lost its edge after 2007, partly in the 2009
+      rebound. Daniel-Moskowitz 2016 (JFE, 'Momentum crashes') show crashes happen in 'panic
+      states': after the market has fallen over the past 24 months, when it then rebounds. Rule:
+      hold large-cap winners normally; when the market's trailing 24-month return is below
+      T-bills, hold the market instead. One fixed parameter from the paper, not tuned.
+  R6_H3_momentum_em_replication:
+    family: momentum
+    sleeve: big_momentum
+    reason: >
+      Exactly round 5's R5_H2 (long-only large-cap winners, 10% vol), which passed its US and
+      developed-market confirmations. The cleanest further check of the only survivor: a market
+      this project has never loaded (Emerging Markets 1991-2024, which includes India at ~15-20%).
+  R6_H4_india_tax_harvest:
+    family: tax
+    reason: >
+      Not a market edge - a legal tax rule. Indian listed equity funds: long-term gains up to
+      Rs 1.25 lakh per financial year are tax-free. A buy-and-hold investor who never sells uses
+      this allowance once; one who sells and re-buys each March uses it every year and raises the
+      cost basis for free (India has no wash-sale rule). Brokers net same-day buy+sell of the same
+      ETF into an intraday trade, so the rule sells at the close and re-buys at the NEXT day's close.
+      Measured on NIFTYBEES 2010-2024 vs plain buy and hold, both fully taxed at the end.
+
+# A diagnostic, not a candidate (cannot become a finalist), counted as one trial.
+diagnostics:
+  R6_D1_intraday_spy: {family: intraday, ticker: SPY}    # open -> close half of the day
+
+# ---------------------------------------------------------------------
+# Pre-registered finalist selection (exploration data only). Candidates: H1, H2, H3.
+# H4 is an accounting rule with no estimated parameter: reported, never a finalist.
+# ---------------------------------------------------------------------
+finalist_selection:
+  max_finalists: 3
+  must: [survival_rate >= 0.8, excess_return_at_2x_costs > 0, excess_sharpe > benchmark_excess_sharpe]
+  rank_by: excess_sharpe_minus_benchmark
+
+# ---------------------------------------------------------------------
+# Pre-registered confirmation. Runs ONCE, automatically, right after the finalists are written
+# to research6/confirmation_LOCK.json (set research6.run_confirmation: false in base_config.yaml
+# BEFORE the run to block it). A finalist CONFIRMS only if it meets ALL criteria on EVERY
+# required data set.
+# ---------------------------------------------------------------------
+confirmation_criteria:
+  overnight:                           # India, NIFTYBEES, India costs at Rs 10 lakh
+    open_data_reliable: true
+    excess_sharpe_gt_buy_and_hold: true
+    p_value_lt: 0.10                   # paired block bootstrap (21-day blocks) vs buy and hold
+    after_cost_and_tax_cagr_gt_rf: true    # beats a liquid fund after costs and STCG
+    survival_rate_ge: 0.8
+  momentum:                            # Emerging Markets, both at 10% vol
+    excess_sharpe_gt_market: true
+    excess_return_gt: 0.0
+    p_value_lt: 0.10                   # paired block bootstrap (12-month blocks) vs the EM market
+    survival_rate_ge: 0.8
+
+# Why this confirmation is clean:
+#  * no data set used here was ever loaded by rounds 1-5 (Emerging Markets portfolios, NIFTYBEES,
+#    the Nifty index, and Indian open prices of any kind);
+#  * finalists are chosen by the mechanical rule above from US exploration numbers and frozen in
+#    a lock file BEFORE the confirmation data is read; a later run cannot change them;
+#  * the confirmation runs once; its dates end before the locked test set (asserted in code);
+#  * the locked test set (2024-10-16 -> 2026-10-16) is not read by any part of round 6.

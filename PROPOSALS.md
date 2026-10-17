@@ -183,3 +183,77 @@ No instrument or year of it has been used anywhere in this project.
 - Yahoo's mutual-fund history before 2000 may have gaps or bad prices. The confirmation report includes a data-quality table and lists funds that failed to load.
 - VGPMX holds gold MINERS, not gold. There's no commodity or dollar fund, so trend/momentum have fewer assets to work with.
 - The trend-following literature covers 1991-2006, so the hold-out is fresh for OUR selection, not for the idea itself.
+
+---
+
+# Round 5 proposals (P1 OFF, P2 ON, P6 used. Nothing below is active.)
+
+## Is "penalized Sharpe > 1" realistic? No. (Evidence)
+
+Numbers computed with this repo's `evaluation.py`:
+
+| data | trials N | Sharpe noise (1 s.e.) | luck haircut | raw Sharpe needed |
+|---|---|---|---|---|
+| round 4: 18 years daily | 41 | 0.24 | 0.52 | **1.52** |
+| round 5: 61 years monthly | 41 | 0.13 | 0.28 | **1.28** |
+
+For scale (my estimate from the literature, not measured here):
+- the US stock market's long-run excess-return Sharpe is about 0.4;
+- good long-only factor tilts reach about 0.5-0.7;
+- diversified allocation reaches about 0.6-0.8 (round 4 measured 0.60-0.68).
+
+A strategy whose TRUE Sharpe is 0.8, which would be excellent, passes the 61-year version of the bar about **0.0%** of the time. One with a true Sharpe of 1.0 passes about 1.4% of the time. The bar does not separate good from bad: it fails everything honest. The only things that clear it are leakage, overfitting or leverage tricks. That is why every round ends "NO STRATEGY PASSED".
+
+## Is P4 ("beat 60/40 at equal risk, significantly") the right target? Mostly yes. Refined as P9.
+
+The question you care about is "does this make more money than the sensible default at the same risk, and is that real?" P4 asks exactly that. Three refinements:
+1. **Compare with the right default for what is being tested.** For an equity tilt or equity timing rule, that is the equity market at the same volatility. If a tilt beats the market at equal risk, it also improves any stock/bond mix you build with it. For a whole multi-asset portfolio, it is 60/40.
+2. **Use excess returns.** Measure returns above T-bills (P7), and compare at equal risk without the kill switch distorting the benchmark (P8).
+3. **Control for luck.** Use significance with a Bonferroni correction for the hypotheses in the round, a deflated-Sharpe test with ALL trials, a confirmation that includes a significance test, then forward paper trading.
+
+## P7 - Sharpe on EXCESS returns (above T-bills) everywhere (NOT active)
+
+So far Sharpe has been computed on raw returns, so T-bill interest counts as if it were skill.
+- **Why it matters:** this is why P5 (crediting idle cash) seemed to lift H3 from 0.67 to 0.83. With excess-return Sharpe, cash interest is neutral, as it should be.
+- **Where you can see it:** the round-4 report now shows the "P5 recheck" line, which sets the raw and excess numbers side by side with a bootstrap p-value. Round 5 already uses excess returns and real T-bill returns throughout.
+- **Proposal:** make excess-return Sharpe the official Sharpe in all stages.
+
+## P8 - Don't let the kill switch distort profit comparisons (NOT active)
+
+Your survival rule stays. The problem is narrower.
+
+**Evidence from round 4:** inside one-year windows the rule kills the benchmarks. SPY buy-and-hold "died" in 6 of 18 windows. In 2009 it was killed at -15% in March, so it missed that year's +26% rally. So "60/40 CAGR 5.0%" is not what anyone holding 60/40 earned. Round 4's new "w/o kill switch" columns show both numbers.
+
+**Proposal:**
+1. Survival is measured with the kill switch, as now.
+2. Profit comparisons are made either (a) at equal ex-ante risk, as round 5 does (strategy and benchmark both scaled to 10% volatility, both under the same kill switch), or (b) without the kill switch.
+
+## P9 - Replace "penalized Sharpe > 1" (NOT active; the report shows it as the "P9" column)
+
+A round-5 strategy passes if ALL of these hold:
+1. **Beats the right benchmark at equal risk:** excess Sharpe above the market's, at the same 10% volatility target.
+2. **Significant after correcting for this round:** paired block-bootstrap p < 0.05 / (number of round-5 hypotheses = 6), i.e. p < 0.0083.
+3. **Real after ALL trials:** deflated-Sharpe probability > 0.95 using all 41+ trials.
+4. **Survives and is cheap enough:** survival >= 80%, and it still beats T-bills at 2x costs.
+5. **Confirms:** passes the pre-registered confirmation, which includes p < 0.10 on the 36-year US hold-out.
+6. **Then:** the one-time locked test, then 12+ months of forward paper trading before any real money.
+
+**Why this isn't a loosening.** Points 2, 3 and 5 are statistical hurdles the current bar doesn't have. Point 1 asks for real outperformance, not an absolute number that only fakes reach.
+
+**Power.** Over 61 years, the noise in the Sharpe *difference* between two related strategies is about 0.06-0.08, against 0.11-0.15 over 18 years. So P9 can detect a real edge of about 0.2. Round 4's data could not.
+
+## P10 - Approve the round-5 confirmation hold-out (needs your approval)
+
+Switch: `research5.confirmation_approved: true` in `base_config.yaml`. Approve it before the first round-5 run, so finalists, then confirmation, happen mechanically.
+
+**What the hold-out contains:**
+- **Required:** US 1927-1963 (36 years, never used by this project, including 1929-32 and 1937); and Developed ex-US 1991-2024 (factor tilts there never used).
+- **Informational:** Japan, Asia-Pacific ex Japan.
+
+**What it requires:** each finalist must beat the market at equal risk in both required sets, beat T-bills, survive at least 80% of years, AND be significant (p < 0.10) on the US hold-out. I tightened that last part in a separate commit before any real-data run: "beat the market twice" alone would pass a zero-edge strategy about 25% of the time; with the significance test it is about 5%.
+
+**Weaknesses you should know about:**
+- The published literature already used these data: momentum before 1963 (Geczy-Samonov), value before 1963 (Davis-Fama-French). So the hold-out is fresh for OUR selection, not for the ideas themselves.
+- The regions overlap the US exploration in time, and markets are correlated, so they are a weaker check than US 1927-1963.
+- The kill switch is checked at month ends, which misses drawdowns inside a month.
+- The French portfolios are gross of their internal trading. I subtract assumed drags of 5/40/80 bps a year (market/value/momentum), and double them in the robustness test.

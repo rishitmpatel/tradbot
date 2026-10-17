@@ -5,7 +5,7 @@
 # PAPER TRADING / RESEARCH ONLY. No broker, no real money.
 # =====================================================================
 
-round: 4                  # bump when you start a new research round
+round: 5                  # bump when you start a new research round
 experiment_cap: 30        # max variants run per round (extra files are skipped)
 
 research:
@@ -13,6 +13,12 @@ research:
   # funds 1991-2006) runs ONLY after the owner approves it (PROPOSALS.md, P6). The laptop
   # agent must never change this line.
   confirmation_approved: true
+
+research5:
+  # Round 5 (factor_research.py, research/plan_round5.yaml). Its confirmation hold-out
+  # (US 1927-1963 + other developed markets, Ken French data) runs ONLY after the owner
+  # approves it (PROPOSALS.md, P10). The laptop agent must never change this line.
+  confirmation_approved: false
 
 multiple_testing:
   # From round 3 rules can be selected, so every rule we have LOOKED AT counts as a trial.

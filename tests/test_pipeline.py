@@ -38,7 +38,7 @@ def test_all_configs_load():
 
 
 def test_self_checks(prices, cfg):
-    assert len(run_all_checks(prices, cfg)) == 7
+    assert len(run_all_checks(prices, cfg)) == 8
 
 
 def test_lookahead_feature_is_caught(prices, cfg):
@@ -411,3 +411,76 @@ def test_confirmation_universe_is_disjoint():
     E, C = plan["universes"]["exploration"], plan["universes"]["confirmation"]
     assert not set(E["tickers"]) & set(C["tickers"])
     assert pd.Timestamp(C["eval_end"]) < pd.Timestamp(E["eval_start"])
+
+
+# ---------------------------------------------------------------- round 5
+def test_french_download_failure_is_clear(tmp_path, monkeypatch):
+    import factor_data
+    monkeypatch.setattr(factor_data, "CACHE", tmp_path)
+
+    def boom(*a, **k):
+        raise OSError("no network")
+    monkeypatch.setattr(factor_data.urllib.request, "urlopen", boom)
+    with pytest.raises(factor_data.DataUnavailable) as e:
+        factor_data.fetch("https://example.invalid/", "F-F_Research_Data_Factors_CSV.zip")
+    msg = str(e.value)
+    assert "data_library.html" in msg and "F-F_Research_Data_Factors_CSV.zip" in msg and str(tmp_path) in msg
+
+
+def test_turn_of_month_costs_and_switches():
+    from factor_research import tom_sleeve_monthly
+    days = pd.bdate_range("2010-01-01", "2010-12-31")
+    flat = pd.DataFrame({"mkt": 0.0, "rf": 0.0}, index=days)
+    m = tom_sleeve_monthly(flat, 1, 3, 0.0015)
+    assert (m < 0).all()                                   # no edge -> only switching costs
+    assert np.allclose(m.iloc[1:-1], (1 - 0.0015) ** 2 - 1, atol=1e-6)   # in and out once per month
+
+
+def test_india_taxes_and_fixed_charges():
+    from india_costs import simulate
+    m = pd.date_range("2015-04-30", periods=60, freq="ME")
+    W = pd.DataFrame({"market": 1.0, "cash": 0.0}, index=m)
+    R = pd.DataFrame({"market": 0.01, "cash": 0.0}, index=m)
+    hold = simulate(W, R, 1e6, "india_listed")
+    churn = simulate(W, R, 1e6, "india_listed", round_trip_each_month=True)
+    assert churn["tax_paid"] > hold["tax_paid"] and churn["cagr"] < hold["cagr"]
+    small = simulate(W, R, 1e5, "india_listed", round_trip_each_month=True)
+    big = simulate(W, R, 1e7, "india_listed", round_trip_each_month=True)
+    assert small["charges"] / 1e5 > big["charges"] / 1e7      # fixed DP charges hurt small accounts more
+
+
+def test_round5_stage_synthetic(tmp_path, monkeypatch):
+    import factor_research as fr
+    base = deep_merge(load_base(), {"data": {"source": "synthetic"}})
+    res = fr.run_round5(base, tmp_path, True, legacy_trials=27, approved=False)
+    n_trials5 = len(fr.all_trials(res["plan"]))
+    assert res["n_total"] == 27 + n_trials5
+    assert res["confirmation"]["status"].startswith("not approved")
+    assert len(res["finalists"]) <= 3
+    for n in res["finalists"]:
+        assert res["summ"][n]["survival_rate"] >= 0.8 and res["summ"][n]["costs_2x_excess_cagr"] > 0
+    assert all(res["summ"][n]["verdict"] == "FAIL" for n in res["plan"]["hypotheses"])     # unconfirmed
+    b = res["summ"]["bench:market"]
+    assert b["last"] < "2024-10-16"                                                          # never the test set
+    res2 = fr.run_round5(base, tmp_path, True, legacy_trials=27, approved=True)
+    if res["finalists"]:
+        assert res2["confirmation"]["status"] == "ok"
+        us = res2["confirmation"]["sets"]["US 1927-1963"]["summ"]["bench:market"]
+        assert us["last"] <= "1963-06-30"
+        assert (tmp_path / "research5" / "confirmation_LOCK.json").exists()
+    plan = fr.load_plan()
+    plan["hypotheses"]["R5_H3_big_value"]["sleeve"] = {"big_value": 0.9, "market": 0.1}
+    monkeypatch.setattr(fr, "load_plan", lambda path=None: plan)
+    res3 = fr.run_round5(base, tmp_path, True, legacy_trials=27, approved=False)
+    assert res3["status"]["R5_H3_big_value"] == "exploratory" and res3["n_total"] == res["n_total"] + 1
+
+
+def test_tracker_converts_round5_finalists():
+    from factor_research import load_plan as lp5
+    from paper_trade import tracked_plan
+    from research import load_plan as lp4
+    p = tracked_plan(lp4(), lp5(), ["R5_H5_value_momentum_trend", "R5_H6_turn_of_month"])
+    a = p["hypotheses"]["R5_H5_value_momentum_trend"]["params"]
+    assert a["mix"] == {"IWD": 0.5, "MTUM": 0.5} and a["trend_signal"] == "SPY" and a["cash"] == "SHV"
+    assert p["hypotheses"]["R5_H6_turn_of_month"]["params"]["rebalance"] == "daily"
+    assert "r5_bench:market" in p["hypotheses"]

@@ -87,6 +87,42 @@ def final_test_research(name: str, base: dict, out_dir, lock, md, synthetic: boo
     return 0
 
 
+def final_test_research5(name: str, base: dict, out_dir, lock, md, synthetic: bool, sel: dict) -> int:
+    from factor_research import final_test_round5, load_plan, register_round5
+    from run_all import mode_dirs
+    res_root, _ = mode_dirs(base, synthetic, False)
+    status, _ = register_round5(load_plan(), res_root)
+    if status.get(name) != "registered":
+        log.error("%s is not a registered, unchanged round-5 hypothesis (%s). Refusing.", name, status.get(name))
+        return 1
+    out_dir.mkdir(parents=True, exist_ok=True)
+    save_json(lock, {"strategy": name, "kind": "research5", "run_at": time.strftime("%Y-%m-%d %H:%M:%S")})
+    res = final_test_round5(name, base, synthetic)
+    fc = base.get("final_test_criteria") or {}
+    s = res[name]
+    L = ["# FINAL TEST (one-time, locked test set) - round 5\n"]
+    if synthetic:
+        L.append("> **SYNTHETIC DATA - NOT REAL RESULTS.**\n")
+    L.append(f"Strategy **{name}**, selected from {sel['n_trials']} trials. Monthly Ken French data, which lags 1-2 months: "
+             f"covered {s.get('first')} -> {s.get('last')}. Same 10% vol target, costs and kill switch as in research.\n")
+    L.append("Two years of MONTHLY data (~24 points) cannot confirm an edge. Read this only as a check for "
+             "something badly broken.\n")
+    L.append("| strategy | result |\n|---|---|")
+    for n, r in res.items():
+        L.append(f"| {n} | {json.dumps({k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items() if not str(k).startswith('_')})} |")
+    tr = s.get("mean_return", s.get("total_return"))
+    sharpe = s.get("mean_sharpe")
+    ok = (tr is not None and tr > fc.get("min_return", 0.0) and sharpe is not None and sharpe > fc.get("min_sharpe", 0.0)
+          and not s.get("dead", False) and (s.get("survived", 1) == s.get("n_ok", 1)))
+    L.append(f"\n**Pre-registered final-test check** (return > {fc.get('min_return', 0.0):+.0%}, Sharpe > "
+             f"{fc.get('min_sharpe', 0.0)}, survives): **{'MET' if ok else 'NOT MET'}**"
+             + (" (not enough months to compute Sharpe -> NOT MET)" if sharpe is None else "")
+             + ". On ~24 monthly points this can catch a broken strategy but cannot prove a good one.\n")
+    md.write_text("\n".join(L) + "\n", encoding="utf-8")
+    log.info("Wrote %s", md.name)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--synthetic", action="store_true")
@@ -119,6 +155,8 @@ def main() -> int:
     name = sel["selected"]
     if sel.get("kind") == "research":     # round-4 allocation rule
         return final_test_research(name, base, out_dir, lock, md, args.synthetic, sel)
+    if sel.get("kind") == "research5":    # round-5 long-history premium
+        return final_test_research5(name, base, out_dir, lock, md, args.synthetic, sel)
     cfg = prepare_cfg(load_experiment(CONFIGS_DIR / f"{name}.yaml"), args.synthetic, args.smoke)
     if strategy_hash(cfg) != sel["hash"]:
         log.error("Config %s changed since validation (hash %s != %s). Refusing: re-run run_all.py.",

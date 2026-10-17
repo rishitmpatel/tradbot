@@ -128,7 +128,8 @@ def yearly_windows(index: pd.DatetimeIndex, start: str, end: pd.Timestamp, shift
 # Evaluation
 # --------------------------------------------------------------------------
 def run_windows(W: pd.DataFrame, rebal: np.ndarray, panel: pd.DataFrame, rf: pd.Series, windows, common: dict,
-                cost_mult: float = 1.0, credit_cash: bool | None = None, min_live: int = 1) -> list[dict]:
+                cost_mult: float = 1.0, credit_cash: bool | None = None, min_live: int = 1,
+                kill: bool = True) -> list[dict]:
     rate = float(common["costs_bps"]) / 1e4 * cost_mult
     credit = common.get("credit_cash_interest", False) if credit_cash is None else credit_cash
     fwd_all = (panel.shift(-1) / panel - 1.0)
@@ -146,7 +147,7 @@ def run_windows(W: pd.DataFrame, rebal: np.ndarray, panel: pd.DataFrame, rf: pd.
         tradable = np.repeat(reb.loc[dec].values[:, None], panel.shape[1], axis=1)
         tradable[0] = True                                   # every window starts invested
         bt = weights_backtest(dec, real, tgt, fwd.fillna(0.0).values, tradable, rate, 1e5,
-                              float(common["max_drawdown_kill"]), list(panel.columns), rf=rf.loc[dec].values,
+                              float(common["max_drawdown_kill"]) if kill else None, list(panel.columns), rf=rf.loc[dec].values,
                               borrow_spread=float(common["borrow_spread"]), credit_cash=credit)
         out.append({"start": str(ws.date()), "end": str(we.date()), "metrics": bt.metrics,
                     "rets": bt.returns.iloc[1:], "gross": float(np.abs(tgt).sum(axis=1).mean())})
@@ -259,6 +260,27 @@ def run_research(base: dict, res_root: Path, synthetic: bool, legacy_trials: int
         s["with_cash_interest_sharpe"] = summarize_windows(
             n, run_windows(*strats[n], panel, rf, wins, common, credit_cash=True), rf)["mean_sharpe"]
 
+    # Round-5 measurement checks (informational): (a) without the kill switch, (b) P5 recheck
+    for n in list(strats) + list(bench):
+        W, reb = {**strats, **bench}[n]
+        nk = summarize_windows(n, run_windows(W, reb, panel, rf, wins, common, kill=False), rf)
+        summ[n]["nokill_sharpe"], summ[n]["nokill_cagr"] = nk.get("mean_sharpe"), nk.get("cagr")
+        ex_n = nk["_rets"] - rf.reindex(nk["_rets"].index).fillna(0.0)
+        summ[n]["nokill_excess_sharpe"] = float(ex_n.mean() / ex_n.std(ddof=1) * np.sqrt(252))
+        summ[n]["_nokill_ex"] = ex_n
+    p5 = None
+    if "H3_trend_following" in strats:
+        cash = summarize_windows("p5", run_windows(*strats["H3_trend_following"], panel, rf, wins, common,
+                                                   credit_cash=True), rf)
+        ex_h3 = cash["_rets"] - rf.reindex(cash["_rets"].index).fillna(0.0)
+        ex_60 = b60["_rets"] - rf.reindex(b60["_rets"].index).fillna(0.0)
+        a, c = ex_h3.align(ex_60, join="inner")
+        p5 = {"raw_sharpe_cash_0": summ["H3_trend_following"]["mean_sharpe"], "raw_sharpe_cash_tbill": cash["mean_sharpe"],
+              "excess_sharpe_cash_tbill": float(a.mean() / a.std(ddof=1) * np.sqrt(252)),
+              "excess_sharpe_60_40": float(c.mean() / c.std(ddof=1) * np.sqrt(252)),
+              "p_vs_60_40_excess": bootstrap_sharpe_diff(a.values, c.values)}
+        log.info("P5 recheck (H3, cash at T-bill, excess Sharpe): %s", {k: round(v, 3) for k, v in p5.items()})
+
     # correlation of member returns (does diversifying across RULES help?)
     corr_names = [n for n in ("H2_inverse_vol", "H3_trend_following", "H4_dual_momentum", "bench:60_40") if n in summ]
     corr = pd.concat({n: summ[n]["_rets"] for n in corr_names}, axis=1).corr().round(2) if corr_names else None
@@ -341,7 +363,7 @@ def run_research(base: dict, res_root: Path, synthetic: bool, legacy_trials: int
     result = {"plan": plan, "status": status, "n_total": n_total, "n_r4": n_r4, "legacy_trials": legacy_trials,
               "summ": summ, "wins": win_tables, "finalists": finalists, "confirmation": conf, "corr": corr,
               "quality": quality_e, "missing": missing_e, "windows": [(str(a.date()), str(b.date())) for a, b in wins],
-              "synthetic": synthetic, "approved": approved,
+              "synthetic": synthetic, "approved": approved, "p5": p5,
               "plan_sha": hashlib.sha1(PLAN_PATH.read_bytes()).hexdigest()[:12]}
     save_json(rdir / "summary.json", {k: _clean(v) for k, v in result.items() if k not in ("corr",)})
     return result
@@ -410,6 +432,19 @@ def write_report(res: dict, path: Path, plot_path: Path) -> str:
                  f"{_num(s.get('with_cash_interest_sharpe'))} | "
                  f"{('yes' if n in res['finalists'] else 'no') if is_h else '-'} | {s.get('verdict', 'benchmark')} | "
                  f"{('yes' if s.get('p4') else 'no') if is_h else '-'} |")
+    L.append("\n**Round-5 measurement checks (informational, see PROPOSALS P7/P8):** performance WITHOUT the "
+             "kill switch (what a holder would actually have had) and the excess-return Sharpe (returns above T-bills).\n")
+    L.append("| strategy | Sharpe w/o kill switch | CAGR w/o kill switch | excess Sharpe w/o kill switch |\n|---|---|---|---|")
+    for n in names + ["bench:60_40", "bench:buy_and_hold"]:
+        s = summ[n]
+        L.append(f"| {n} | {_num(s.get('nokill_sharpe'))} | {_pct(s.get('nokill_cagr'))} | {_num(s.get('nokill_excess_sharpe'))} |")
+    if res.get("p5"):
+        p = res["p5"]
+        L.append(f"\n**P5 recheck (diagnostic trial R5_D1, H3 trend):** Sharpe with idle cash at 0 = {_num(p['raw_sharpe_cash_0'])}; "
+                 f"with cash at T-bill, RAW Sharpe = {_num(p['raw_sharpe_cash_tbill'])} but EXCESS-return Sharpe = "
+                 f"{_num(p['excess_sharpe_cash_tbill'])} vs 60/40 {_num(p['excess_sharpe_60_40'])}, bootstrap p (not better) = "
+                 f"{_num(p['p_vs_60_40_excess'], 3)}. Raw Sharpe counts T-bill interest as if it were skill; the excess-return "
+                 "Sharpe removes it. Compare the two to see how much of P5's improvement was accounting.\n")
     L.append("\n*CAGR at 10% vol*: what the strategy would have earned run at 10% annual volatility (borrowing at "
              "T-bill + 1% if it needs leverage, idle cash at 0). It compares profit at EQUAL risk. *p*: paired block "
              "bootstrap probability that the Sharpe advantage over 60/40 is not real (smaller = more convincing).\n")

@@ -203,6 +203,77 @@ def check_tracker_matches_engine(panel: pd.DataFrame) -> None:
         f"paper tracker {log['equity'].iloc[-1]:.2f} != engine {bt.equity.iloc[-1]:.2f}"
 
 
+FRENCH_SAMPLE = """Header text line
+  Average Value Weighted Returns -- Monthly
+,SMALL LoPRIOR,ME1 PRIOR2,SMALL HiPRIOR,BIG LoPRIOR,ME2 PRIOR2,BIG HiPRIOR
+192701,   2.12,   0.53,   1.10,  -0.33,   0.55,   1.02
+192702, -99.99,   4.68,   5.73,   3.69,   4.35,   4.76
+
+  Annual
+,SMALL LoPRIOR,ME1 PRIOR2,SMALL HiPRIOR,BIG LoPRIOR,ME2 PRIOR2,BIG HiPRIOR
+  1927,   9.99,   9.99,   9.99,   9.99,   9.99,   9.99
+"""
+
+
+def check_round5() -> None:
+    """Round 5: Ken French parser, turn-of-month calendar, no lookahead in monthly positions
+    (future-poison test), monthly engine accounting + kill switch, Indian tax simulator."""
+    from allocation import tom_position_mask
+    from factor_data import parse_french_csv, synthetic_market
+    from factor_research import load_plan, positions, run_monthly, sleeve_returns
+    from india_costs import simulate
+
+    df = parse_french_csv(FRENCH_SAMPLE)
+    assert len(df) == 2 and np.isnan(df.iloc[1, 0]) and np.isclose(df["BIG HiPRIOR"].iloc[0], 0.0102), "French parser"
+    days = pd.bdate_range("2024-10-01", "2024-11-08")
+    on = pd.Series(tom_position_mask(days), index=days)
+    expect = pd.DatetimeIndex(["2024-10-01", "2024-10-02", "2024-10-30", "2024-10-31", "2024-11-01", "2024-11-04"])
+    assert list(on[on].index) == list(expect), f"turn-of-month calendar wrong: {list(on[on].index)}"
+
+    plan = load_plan()
+    common = plan["common"]
+    data = synthetic_market(1, "1990-01-01", "2010-12-31")
+    rng = np.random.default_rng(4)
+    for spec in plan["hypotheses"].values():
+        if spec.get("turn_of_month"):
+            continue                                      # calendar-only signal, checked above
+        full = positions(spec, common, data, sleeve_returns(spec, common, data))
+        for i in rng.choice(np.arange(30, len(data["monthly"]) - 1), size=3, replace=False):
+            t = data["monthly"].index[i]
+            bad = {"monthly": data["monthly"].copy(), "daily": data["daily"]}
+            bad["monthly"].loc[bad["monthly"].index >= t, ["market", "big_momentum", "big_value"]] = 9.0
+            pos = positions(spec, common, bad, sleeve_returns(spec, common, bad))
+            assert np.isclose(full[t], pos[t], equal_nan=True), f"LOOKAHEAD in round-5 position at {t.date()}"
+
+    idx = pd.date_range("2001-01-31", periods=24, freq="ME")
+    sl = pd.Series(0.01, index=idx)
+    rf = pd.Series(0.0, index=idx)
+    r, w = run_monthly(sl, rf, pd.Series(1.0, index=idx), 0.0, None, "2001-01-31", idx[-1])
+    assert np.isclose((1 + r).prod(), 1.01 ** 24), "monthly engine accounting"
+    crash = pd.Series([-0.06] * 12 + [0.02] * 12, index=idx)
+    r, w = run_monthly(crash, rf, pd.Series(1.0, index=idx), 0.001, 0.15, "2001-01-31", idx[-1])
+    assert w[0]["dead"] and (r[r.index.year == 2001].iloc[3:] == 0).all(), "monthly kill switch"
+
+    m = pd.date_range("2020-04-30", periods=24, freq="ME")
+    t = simulate(pd.DataFrame({"market": 1.0, "cash": 0.0}, index=m), pd.DataFrame({"market": 0.01, "cash": 0.0}, index=m),
+                 1e6, "india_listed")
+    gain = 1e6 * (1.01 ** 24 - 1)
+    assert abs(t["tax_paid"] - 0.125 * (gain - 125_000) * 1.04) < 0.01 * gain, "Indian LTCG tax simulator"
+
+
+def check_r5_sleeve_causal(panel: pd.DataFrame) -> None:
+    from allocation import build_weights
+    c = list(panel.columns)
+    spec = {"x": {"rule": "r5_sleeve", "params": {"mix": {c[0]: 0.5, c[1]: 0.5}, "cash": c[2], "trend_signal": c[0],
+                                                  "tom": True, "vol_target": 0.10}}}
+    rf = pd.Series(0.0001, index=panel.index)
+    full = build_weights("x", spec["x"], spec, panel, rf, None, {})
+    for i in (400, 700, 900):
+        tr = build_weights("x", spec["x"], spec, panel.iloc[: i + 1], rf.iloc[: i + 1], None, {})
+        assert np.allclose(full.iloc[i].values, tr.iloc[-1].values, atol=1e-9), "LOOKAHEAD in r5_sleeve (paper tracker rule)"
+    assert (full.sum(axis=1) <= 1 + 1e-9).all() and (full.values >= -1e-12).all(), "r5_sleeve leverage/short"
+
+
 def run_all_checks(prices: dict, cfg: dict) -> list[str]:
     done = []
     check_features_causal(prices, cfg)
@@ -228,4 +299,7 @@ def run_all_checks(prices: dict, cfg: dict) -> list[str]:
     check_allocation_rules(panel)
     check_tracker_matches_engine(panel.dropna())
     done.append("round-4 allocation rules causal/long-only/capped; paper tracker == engine")
+    check_round5()
+    check_r5_sleeve_causal(panel.dropna())
+    done.append("round-5: French parser, turn-of-month calendar, no lookahead (future-poison), engine, kill switch, tax sim")
     return done

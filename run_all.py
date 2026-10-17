@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 
 from backtest import cost_rate
+from factor_research import count_prefix
 from config_utils import (CONFIGS_DIR, ROOT, deep_merge, list_experiment_files, load_base, load_experiment,
                           resolve_n_jobs, strategy_hash)
 from data import get_split, load_prices, quality_report
@@ -118,7 +119,7 @@ def legacy_trial_count(res_root: Path, base_raw: dict, configs_dir: Path = CONFI
     return n + int((base_raw.get("multiple_testing") or {}).get("extra_trials", 0))
 
 
-def trial_table(res_root: Path, legacy: int, rres: dict) -> str:
+def trial_table(res_root: Path, legacy: int, total: int) -> str:
     """Every trial ever counted, by round (requirement: RESULTS.md lists all experiments + counts)."""
     path = res_root / "trial_ledger.json"
     ledger = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"trials": {}}
@@ -126,9 +127,9 @@ def trial_table(res_root: Path, legacy: int, rres: dict) -> str:
     for k, v in ledger["trials"].items():
         by_round.setdefault(v.get("round", "?"), []).append((k, v))
     L = ["## Trial ledger (every experiment ever counted)\n",
-         f"Total used for the Sharpe penalty: **{rres['n_total']}** = {legacy} from rounds 1-3 (ledger entries, never "
-         "fewer than the archived configs, + 5 rule baselines) + "
-         f"{rres['n_r4']} round-4 hypotheses.\n",
+         f"Total used for the Sharpe penalty: **{total}** = {legacy} from rounds 1-3 (ledger entries, never "
+         "fewer than the archived configs, + 5 rule baselines) + the round-4 and round-5 entries below "
+         "(diagnostics and exploratory additions included).\n",
          "| round | trials in ledger | names |", "|---|---|---|"]
     for r in sorted(by_round, key=str):
         items = by_round[r]
@@ -408,18 +409,23 @@ def main() -> int:
     save_json(res_root / "all_summaries.json", {"experiments": summaries, "baselines": baseline_summaries,
                                                 "robustness": robustness, "load_errors": load_errors})
 
-    # 10. round 4: research stage (exploration -> finalists -> approved confirmation) --------------
+    # 10. rounds 4 and 5: research stages ----------------------------------------------------------
     if not args.skip_research:
+        from factor_research import load_plan as load_plan5
+        from factor_research import register_round5, run_round5
+        from factor_research import write_report as write_report5
         from research import run_research, write_report
+        # register round-5 trials FIRST so both stages penalise with the same true total
+        _, n_r5 = register_round5(load_plan5(), res_root)
+        rres = None
         try:
-            # smoke runs never touch the confirmation hold-out
+            # smoke runs never touch a confirmation hold-out
             approved = bool((base_raw.get("research") or {}).get("confirmation_approved", False)) and not args.smoke
-            rres = run_research(base, res_root, args.synthetic, n_trials, approved)
+            rres = run_research(base, res_root, args.synthetic, n_trials + n_r5, approved)
             rmd = write_report(rres, ROOT / ("RESEARCH.md" if not (args.synthetic or args.smoke)
                                              else f"RESEARCH_{mode.upper()}.md"), res_root / "plots" / "round4.png")
             with open(md_path, "a", encoding="utf-8") as f:
                 f.write("\n" + rmd)
-                f.write("\n" + trial_table(res_root, n_trials, rres))
             r4_pass = [n for n in rres["plan"]["hypotheses"] if rres["summ"][n]["verdict"] == "PASS"]
             if r4_pass and not passing:
                 best = max(r4_pass, key=lambda n: rres["summ"][n]["penalized_sharpe"])
@@ -428,11 +434,41 @@ def main() -> int:
                     "n_trials": rres["n_total"], "generated": time.strftime("%Y-%m-%d %H:%M:%S"), "mode": mode,
                     "note": "final_test.py evaluates ONLY the selected strategy, ONCE."})
                 selected = best
+                passing = passing + [{"name": best}]
             log.info("round 4 PASSING: %s | finalists: %s", r4_pass or "none", rres["finalists"])
         except Exception as e:
-            log.error("research stage crashed: %s\n%s", e, traceback.format_exc())
+            log.error("round-4 research stage crashed: %s\n%s", e, traceback.format_exc())
             with open(md_path, "a", encoding="utf-8") as f:
                 f.write(f"\n## Round 4 research\n\n**CRASHED**: {type(e).__name__}: {e}\n")
+        r5 = None
+        try:
+            approved5 = bool((base_raw.get("research5") or {}).get("confirmation_approved", False)) and not args.smoke
+            r5 = run_round5(base, res_root, args.synthetic, n_trials, approved5)
+            md5 = write_report5(r5, ROOT / ("RESEARCH5.md" if not (args.synthetic or args.smoke)
+                                            else f"RESEARCH5_{mode.upper()}.md"))
+            with open(md_path, "a", encoding="utf-8") as f:
+                f.write("\n" + md5)
+            r5_pass = [n for n in r5["plan"]["hypotheses"] if r5["summ"][n]["verdict"] == "PASS"]
+            if r5_pass and not passing:
+                best = max(r5_pass, key=lambda n: r5["summ"][n]["mean_sharpe"])
+                save_json(res_root / "selection.json", {
+                    "selected": best, "kind": "research5", "hash": None, "passing": r5_pass,
+                    "n_trials": r5["n_total"], "generated": time.strftime("%Y-%m-%d %H:%M:%S"), "mode": mode,
+                    "note": "final_test.py evaluates ONLY the selected strategy, ONCE."})
+                selected = best
+            log.info("round 5 PASSING: %s | finalists: %s", r5_pass or "none", r5["finalists"])
+        except Exception as e:
+            log.error("round-5 research stage crashed: %s\n%s", e, traceback.format_exc())
+            with open(md_path, "a", encoding="utf-8") as f:
+                f.write(f"\n## Round 5 research\n\n**CRASHED**: {type(e).__name__}: {e}\n")
+        total = n_trials + count_prefix(res_root, "r4:") + count_prefix(res_root, "r5:")
+        with open(md_path, "a", encoding="utf-8") as f:
+            f.write("\n" + trial_table(res_root, n_trials, total))
+        txt = md_path.read_text(encoding="utf-8")
+        md_path.write_text(txt.replace(
+            f"- Variants tried (all rounds, used for Sharpe penalty): **{n_trials}**",
+            f"- Variants tried (all rounds, used for Sharpe penalty): **{total}** (rounds 1-3: {n_trials}, "
+            f"round 4: {count_prefix(res_root, 'r4:')}, round 5: {count_prefix(res_root, 'r5:')})", 1), encoding="utf-8")
 
     # 11. forward paper tracker (real data only) ---------------------------------------------------
     if not (args.synthetic or args.smoke or args.skip_research):

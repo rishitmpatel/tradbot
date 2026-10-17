@@ -24,7 +24,7 @@ CONFIGS_DIR = ROOT / "configs"
 # They are excluded from the config hash, so changing n_jobs does not
 # invalidate finished runs.
 NON_STRATEGY_KEYS = {"runtime", "name", "description", "robustness", "pass_criteria", "multiple_testing",
-                     "final_test_criteria", "research",
+                     "final_test_criteria", "research", "research5",
                      "experiment_cap", "round"}
 
 

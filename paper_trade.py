@@ -26,7 +26,6 @@ import argparse
 import json
 import logging
 import sys
-import time
 from pathlib import Path
 
 import numpy as np
@@ -56,21 +55,24 @@ def strategy_weights(plan: dict, names: list[str], panel: pd.DataFrame, rf: pd.S
 
 
 def update_tracker(panel: pd.DataFrame, rf: pd.Series, plan: dict, names: list[str], out_dir: Path,
-                   start: pd.Timestamp, initial: float = 100_000.0) -> dict:
+                   start, initial: float = 100_000.0) -> dict:
     """Append new days to each strategy's CSV. Pure function of the data -> testable.
-    Returns {name: number of rows appended}."""
+    `start` is one date for all, or {name: date}. Returns {name: number of rows appended}."""
     common = plan["common"]
     rate = float(common["costs_bps"]) / 1e4
     spread = float(common["borrow_spread"]) / 252.0
     kill = float(common["max_drawdown_kill"])
     out_dir.mkdir(parents=True, exist_ok=True)
-    days = panel.index[panel.index >= start]
-    if len(days) == 0:
+    starts = start if isinstance(start, dict) else {n: start for n in names}
+    first = min(pd.Timestamp(v) for v in starts.values())
+    days_all = panel.index[panel.index >= first]
+    if len(days_all) == 0:
         return {n: 0 for n in names}
     strats = strategy_weights(plan, names, panel, rf)
     cols = list(panel.columns)
     appended = {}
     for n in names:
+        days = panel.index[panel.index >= pd.Timestamp(starts[n])]
         path = out_dir / f"{n.replace(':', '_')}.csv"
         if path.exists():
             hist = pd.read_csv(path, parse_dates=["date"])
@@ -115,7 +117,7 @@ def update_tracker(panel: pd.DataFrame, rf: pd.Series, plan: dict, names: list[s
         appended[n] = len(rows)
     px = out_dir / "prices.csv"
     done = pd.read_csv(px, parse_dates=["date"])["date"].max() if px.exists() else None
-    new_px = panel.loc[days if done is None else days[days > done]]
+    new_px = panel.loc[days_all if done is None else days_all[days_all > done]]
     if len(new_px):
         new_px.round(6).rename_axis("date").reset_index().assign(
             date=lambda d: d["date"].dt.date.astype(str)).to_csv(px, mode="a", header=not px.exists(), index=False)
@@ -124,9 +126,9 @@ def update_tracker(panel: pd.DataFrame, rf: pd.Series, plan: dict, names: list[s
 
 def write_summary(out_dir: Path, names: list[str], state: dict) -> str:
     L = ["# Forward paper trading (append-only log)\n",
-         f"Started {state['start']} (after the locked test set ended {state['test_end']}). Strategies registered "
-         f"{state['registered_at']}. Paper money only.\n",
-         "| strategy | days | equity | return since start | max drawdown | status |", "|---|---|---|---|---|---|"]
+         f"Locked test set ended {state['test_end']}; nothing before that is ever logged. Paper money only.\n",
+         "| strategy | started | days | equity | return since start | max drawdown | status |",
+         "|---|---|---|---|---|---|---|"]
     for n in names:
         p = out_dir / f"{n.replace(':', '_')}.csv"
         if not p.exists():
@@ -134,12 +136,32 @@ def write_summary(out_dir: Path, names: list[str], state: dict) -> str:
         d = pd.read_csv(p)
         eq = d["equity"]
         mdd = float((1 - eq / eq.cummax()).max())
-        L.append(f"| {n} | {len(d)} | {eq.iloc[-1]:,.0f} | {eq.iloc[-1] / eq.iloc[0] - 1:+.2%} | {mdd:.1%} | "
+        L.append(f"| {n} | {state['strategies'][n]} | {len(d)} | {eq.iloc[-1]:,.0f} | {eq.iloc[-1] / eq.iloc[0] - 1:+.2%} | {mdd:.1%} | "
                  f"{'DEAD' if d['dead'].iloc[-1] else 'alive'} |")
     L.append("\nUnder about a year this says almost nothing: one year of returns cannot separate skill from luck. "
              "Judge after 12+ months, against the 60/40 row.\n")
     (out_dir / "SUMMARY.md").write_text("\n".join(L) + "\n", encoding="utf-8")
     return "\n".join(L)
+
+
+def tracked_plan(plan4: dict, plan5: dict | None, names5: list[str]) -> dict:
+    """One plan-like dict the tracker understands: round-4 hypotheses + round-5 finalists (and the
+    round-5 market benchmark) converted to ETF form with the r5_sleeve rule."""
+    hyps = dict(plan4["hypotheses"])
+    if plan5:
+        impl, c5 = plan5["implementation"], plan5["common"]
+        tom = c5.get("tom_days", {})
+        for n in names5 + ["r5_bench:market"]:
+            spec = {"sleeve": {"market": 1.0}} if n == "r5_bench:market" else plan5["hypotheses"][n]
+            hyps[n] = {"rule": "r5_sleeve", "params": {
+                "mix": {impl["sleeves"][k]: w for k, w in spec["sleeve"].items()}, "cash": impl["cash"],
+                "trend_signal": impl["trend_signal"] if spec.get("trend") else None,
+                "trend_lookback": 21 * int((spec.get("trend") or {}).get("lookback_months", 12)),
+                "tom": bool(spec.get("turn_of_month")), "tom_before": int(tom.get("before", 1)),
+                "tom_after": int(tom.get("after", 3)), "vol_target": float(c5["vol_target"]),
+                "vol_window": 21 * int(c5["vol_lookback_months"]), "max_gross": float(c5["max_gross"]),
+                "rebalance": "daily" if spec.get("turn_of_month") else "monthly"}}
+    return {**plan4, "hypotheses": hyps}
 
 
 def run_tracker(base_raw: dict, synthetic: bool = False, panel=None, rf=None) -> str | None:
@@ -150,20 +172,31 @@ def run_tracker(base_raw: dict, synthetic: bool = False, panel=None, rf=None) ->
 
     base = prepare_cfg(base_raw, synthetic, smoke=False)
     res_root, _ = mode_dirs(base, synthetic, False)
-    fin_path = res_root / "research" / "finalists.json"
-    if not fin_path.exists():
+    want = []
+    fin4 = res_root / "research" / "finalists.json"
+    if fin4.exists():
+        want += json.loads(fin4.read_text(encoding="utf-8"))["finalists"] + ["bench:60_40", "bench:buy_and_hold"]
+    fin5 = res_root / "research5" / "finalists.json"
+    names5, plan5 = [], None
+    if fin5.exists():
+        from factor_research import load_plan as load_plan5
+        plan5 = load_plan5()
+        names5 = json.loads(fin5.read_text(encoding="utf-8"))["finalists"]
+        want += names5 + ["r5_bench:market"]
+    if not want:
         log.warning("paper tracker: no finalists yet (run run_all.py first)")
         return None
-    finalists = json.loads(fin_path.read_text(encoding="utf-8"))["finalists"]
-    plan = load_plan()
+    plan = tracked_plan(load_plan(), plan5, names5)
     out_dir = PAPER_DIR if not synthetic else ROOT / "paper_synthetic"
     state_path = out_dir / "state.json"
     split = get_split(base, load_prices(base))                 # the locked test set ends at split.data_end
     if panel is None:
         E = plan["universes"]["exploration"]
+        tickers = list(E["tickers"]) + ([*plan5["implementation"]["sleeves"].values(), plan5["implementation"]["cash"]]
+                                        if plan5 else [])
         cfg = deep_merge(base, {"data": {"start": E["start"], "cache_dir": "data/live", "source": "yahoo"}})
         prices = {}
-        for t in E["tickers"]:
+        for t in dict.fromkeys(tickers):
             try:
                 prices.update(load_prices(cfg, [t], refresh=True))
             except Exception as e:
@@ -174,27 +207,28 @@ def run_tracker(base_raw: dict, synthetic: bool = False, panel=None, rf=None) ->
             rf = (irx / 100.0 / 252.0).clip(lower=0.0).reindex(panel.index).ffill().fillna(0.03 / 252)
         except Exception:
             rf = pd.Series(0.03 / 252, index=panel.index)
-    if state_path.exists():
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-    else:
-        after_lock = panel.index[panel.index > split.data_end]
-        if len(after_lock) == 0:
-            log.warning("paper tracker: no trading day after the locked test set yet")
-            return None
-        state = {"start": str(after_lock[-1].date()), "test_end": str(split.data_end.date()),
-                 "registered_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                 "strategies": finalists + ["bench:60_40", "bench:buy_and_hold"]}
-        out_dir.mkdir(parents=True, exist_ok=True)
-        state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    start = pd.Timestamp(state["start"])
-    assert start > split.data_end, "paper tracker would record days inside the locked test set"
-    names = state["strategies"]
-    if set(names) - {"bench:60_40", "bench:buy_and_hold"} != set(finalists):
-        log.warning("paper tracker: finalists changed since tracking started (%s); keeping the original list",
-                    finalists)
-    added = update_tracker(panel, rf, plan, names, out_dir, start)
+    state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else \
+        {"test_end": str(split.data_end.date()), "strategies": {}}
+    if isinstance(state.get("strategies"), list):              # older format: one start for all
+        state["strategies"] = {n: state["start"] for n in state["strategies"]}
+    after_lock = panel.index[panel.index > split.data_end]
+    if len(after_lock) == 0:
+        log.warning("paper tracker: no trading day after the locked test set yet")
+        return None
+    for n in want:
+        needed = plan["hypotheses"].get(n, {}).get("params", {})
+        missing = [t for t in [*(needed.get("mix") or {}), needed.get("cash")] if t and t not in panel.columns]
+        if missing:
+            log.warning("paper tracker: %s skipped, ETF data missing: %s", n, missing)
+            continue
+        state["strategies"].setdefault(n, str(after_lock[-1].date()))   # starts on the latest close
+    out_dir.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    starts = {n: pd.Timestamp(d) for n, d in state["strategies"].items()}
+    assert all(d > split.data_end for d in starts.values()), "paper tracker would record days inside the locked test set"
+    added = update_tracker(panel, rf, plan, list(starts), out_dir, starts)
     log.info("paper tracker: appended %s", added)
-    return write_summary(out_dir, names, state)
+    return write_summary(out_dir, list(starts), state)
 
 
 def main() -> int:

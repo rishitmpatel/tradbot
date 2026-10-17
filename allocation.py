@@ -125,8 +125,48 @@ def scale_to_vol(w: pd.DataFrame, panel, target: float, max_gross: float, window
     return pd.DataFrame(out, index=w.index, columns=w.columns)
 
 
+def tom_position_mask(index: pd.DatetimeIndex, before: int = 1, after: int = 3) -> np.ndarray:
+    """True if the position decided at the close of day d should be IN the market, i.e. the next
+    business day is one of the last `before` or first `after` business days of its month.
+    Uses the weekday calendar only (holidays are published in advance), so it never looks ahead."""
+    nxt = pd.DatetimeIndex(index) + pd.offsets.BDay(1)
+    d = nxt.values.astype("datetime64[D]")
+    mstart = nxt.to_period("M").to_timestamp().values.astype("datetime64[D]")
+    nstart = (nxt.to_period("M") + 1).to_timestamp().values.astype("datetime64[D]")
+    rank_start = np.busday_count(mstart, d) + 1        # 1 = first business day of the month
+    rank_end = np.busday_count(d, nstart)               # 1 = last business day of the month
+    return (rank_start <= after) | (rank_end <= before)
+
+
+
+def r5_sleeve(panel, rf, mix: dict, cash: str, trend_signal: str | None = None, trend_lookback: int = 252,
+              tom: bool = False, tom_before: int = 1, tom_after: int = 3, vol_target: float = 0.10,
+              vol_window: int = 252, max_gross: float = 1.0, **_):
+    """Round-5 strategy in ETF form (for forward paper trading): a fixed mix of ETFs, scaled to
+    `vol_target` with trailing daily volatility, optionally only while `trend_signal` beats
+    T-bills over `trend_lookback` days, optionally only around the turn of the month.
+    Whatever is not in the mix sits in the T-bill ETF `cash` (so idle money earns T-bills)."""
+    r = panel.pct_change()
+    sr = sum(w * r[t] for t, w in mix.items())
+    ex = sr - rf.reindex(panel.index).fillna(0.0)
+    vol = ex.rolling(vol_window, min_periods=vol_window).std() * np.sqrt(252)
+    risky = (vol_target / vol).clip(upper=max_gross)
+    if trend_signal:
+        up = excess_momentum(panel[[trend_signal]], rf, trend_lookback)[trend_signal]
+        risky = risky * (up > 0).astype(float).where(up.notna())
+    if tom:
+        risky = risky * pd.Series(tom_position_mask(panel.index, tom_before, tom_after), index=panel.index).astype(float)
+    risky = risky.fillna(0.0)
+    tot = sum(mix.values())
+    w = pd.DataFrame(0.0, index=panel.index, columns=panel.columns)
+    for t, x in mix.items():
+        w[t] = x / tot * risky
+    w[cash] = (1.0 - risky).where(panel[cash].notna(), 0.0)
+    return w.where(panel.notna(), 0.0)
+
+
 BASE_RULES = {"equal_weight": equal_weight, "inverse_vol": inverse_vol, "trend": trend,
-              "xs_momentum": xs_momentum, "per_asset_vol_target": per_asset_vol_target}
+              "xs_momentum": xs_momentum, "per_asset_vol_target": per_asset_vol_target, "r5_sleeve": r5_sleeve}
 
 
 def build_weights(name: str, spec: dict, all_specs: dict, panel: pd.DataFrame, rf: pd.Series,

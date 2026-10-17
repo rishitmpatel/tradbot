@@ -55,7 +55,7 @@ pip install -r requirements.txt
 python -m pytest -q
 ```
 
-   You should see `31 passed`.
+   You should see `36 passed`.
 
 6. Download the real data and lock the test set:
 
@@ -76,8 +76,8 @@ python run_all.py --smoke
    It writes `RESULTS_SMOKE_REAL.md`. The numbers mean nothing because of the tiny
    training budget. This step only checks that the pipeline works.
 
-8. **Full run.** Since round 4 there is no RL training in the queue, so it takes **about 5-15
-   minutes**, mostly the first download of about 25 tickers. RL configs in `configs/` would make
+8. **Full run.** There is no RL training in the queue, so it takes **about 10-25 minutes**, mostly the
+   first downloads (about 25 Yahoo tickers and 16 small Ken French files). RL configs in `configs/` would make
    it take hours.
 
 ```powershell
@@ -123,7 +123,11 @@ PROPOSALS.md     changes to the pass bar / validation that need YOUR approval (P
 research/plan_round4.yaml  round 4: the PRE-REGISTERED hypotheses (committed before any real run)
 allocation.py    round 4: multi-asset allocation rules (equal weight, risk parity, trend, momentum, ensemble)
 research.py      round 4: exploration -> finalists -> confirmation hold-out -> report (called by run_all.py)
-paper_trade.py   round 4: forward paper-trading tracker, append-only CSV log in paper/ (called by run_all.py)
+paper_trade.py   forward paper-trading tracker (round-4 + round-5 finalists), append-only CSV log in paper/
+research/plan_round5.yaml  round 5: the PRE-REGISTERED hypotheses (committed before any real run)
+factor_data.py   round 5: Ken French Data Library downloader/parser (free, 1926 onwards)
+factor_research.py round 5: century-long premia: exploration -> finalists -> confirmation -> report
+india_costs.py   round 5: what an Indian retail investor keeps after NSE charges, STT, stamp duty and capital-gains tax
 agents.py        PPO + DQN from stable-baselines3, config-driven
 walkforward.py   folds, per-run training/evaluation, checkpoint/resume, summaries
 evaluation.py    multiple-testing (deflated Sharpe) penalty, pass/fail rules
@@ -408,6 +412,85 @@ before the locked test set. Benchmarks: SPY buy-and-hold and 60/40 (SPY/TLT, mon
 5. **Forward paper trading** (`paper/`): finalists + 60/40 + buy-and-hold, logged every trading day
    from the first round-4 run onwards. It never logs anything inside the locked test period.
    Append-only, committed to git. **12+ months of this before any real money.**
+
+## 3e. Round 5: is there a real edge a retail investor can get? (century-long data)
+
+### Where an edge CANNOT exist for you (with free daily data and retail costs)
+- **Daily or intraday timing from prices.** Measured autocorrelation is about 0, and the signal ladder showed costs swamp
+  anything that small. Free intraday data on Yahoo goes back at most ~60 days (5-minute bars) or 2 years (hourly):
+  too short to test anything.
+- **Reinforcement learning on any of the above.** It optimises what is in the data; there is nothing there to find.
+- **Option selling (the volatility risk premium).** The premium is real, but NSE lot sizes need lakhs of rupees in margin,
+  crashes can wipe out years of premium, and SEBI's own studies found about 9 in 10 retail F&O traders lose money.
+- **Currency, rates or commodity carry.** These need futures/forward data and market access a resident Indian
+  doesn't have.
+- **Post-earnings drift and other stock-level anomalies.** These need clean, survivorship-free stock and earnings data,
+  which isn't free.
+
+### Where a modest edge MIGHT exist (economic reason + decades of evidence)
+- **Owning premia cheaply.** The equity premium, plus tilts toward momentum and value.
+- **Trend following** as crash protection.
+- **Diversification** across assets and premia.
+- **Low costs and low taxes.** For an Indian investor these often matter more than any signal.
+
+Round 5 tests the tilts and the timing on **Ken French's free data from 1926**, with real statistical power.
+
+### The quant logic (learn these, they are the whole game)
+1. **Noise vs. sample size.** A Sharpe ratio estimated from Y years has a standard error of about 1/sqrt(Y):
+   18 years → ±0.24, 61 years → ±0.13. Two related strategies are compared more sharply, but you still need decades.
+   Most "edges" people find are inside this noise.
+2. **Excess returns.** Judge returns ABOVE T-bills; T-bill interest is not skill (this is why P5 looked better than it was).
+3. **Equal risk.** Profit ≈ Sharpe × risk. Round 5 scales every strategy AND the market to 10% volatility, so
+   "beats the market" really means "more profit for the same risk".
+4. **Multiple testing.** 41 trials have been counted so far. The best of 41 random strategies looks good by luck;
+   the haircut and the deflated-Sharpe test correct for that.
+5. **Decay.** Published anomalies shrink: McLean-Pontiff (2016) found returns about 26% lower out of sample and about
+   58% lower after publication. Round 5
+   shows each tilt's edge by sub-period (1963-90, 1991-2006, 2007-now), so you can see it.
+6. **Taxes and fixed charges.** In India, selling within 12 months costs 20% of the gain (STCG). Every sale costs
+   about ₹18 in DP charges whatever its size: 0.65% a year on a ₹1 lakh account that sells monthly, but only 0.0065% on
+   ₹1 crore. Low-turnover strategies keep far more.
+
+### The round-5 hypotheses (pre-registered, `research/plan_round5.yaml`)
+
+| | idea | why |
+|---|---|---|
+| H1 | market only while its 12-month return beats T-bills | trend: avoids long bear markets |
+| H2 | large-cap momentum (past winners) | the most persistent anomaly, across markets and centuries |
+| H3 | large-cap value (cheap stocks) | classic premium; honest test of its post-2007 decay |
+| H4 | 50/50 value + momentum | they are negatively correlated → diversification |
+| H5 | H4 + the H1 trend filter | tests whether the two effects add up |
+| H6 | market only around the turn of the month | calendar effect with a mechanical cause (month-end money flows) |
+
+All run at 10% volatility, without leverage, with 15 bps per trade plus fund/turnover drag and the same kill switch.
+
+**Exploration:** US 1963-2024. **Confirmation (P10, needs your approval):** US 1927-1963 + Developed ex-US 1991-2024.
+**After that:** the locked test, then forward paper trading using US ETFs (SPY, MTUM, IWD, SHV) as the tradeable
+stand-ins.
+
+### Rejected
+- *More RL:* no testable reason it could add value here.
+- *India stock-level factor backtests:* no clean, free, survivorship-free NSE data reachable from code.
+  IIMA publishes Indian Fama-French and momentum factors (faculty.iima.ac.in/iffm) for manual study.
+- *Crypto:* the history is too short and changes regime too often.
+- *Intraday:* the free data is too short.
+
+### Can you actually trade the result? (India reality, see `india_costs.py` and the report table)
+- **On NSE:**
+  - Nifty 50 ETFs or index funds are liquid and cheap.
+  - Momentum and value index funds and ETFs exist: Nifty200 Momentum 30, Nifty200 Value 30, Nifty500 Value 50. They
+    launched around 2020-23, so their history is short, and the indexes' earlier history is a back-calculated
+    simulation. Their bid-ask spreads are wider.
+  - Liquid funds can hold idle money.
+  - Holding over 12 months is taxed at 12.5% above ₹1.25 lakh of gains a year; under 12 months at 20%.
+- **US ETFs via LRS** (Vested/INDmoney-type platforms):
+  - You pay roughly 0.5% FX each way.
+  - TCS of 20% applies above ₹10 lakh a year (you get it back through your tax return).
+  - US dividends are taxed at 25% (credit is claimable).
+  - There's no ₹1.25 lakh exemption, and gains are long-term only after 24 months.
+  - Paperwork: Schedule FA, Form 67.
+- **What capital matters:** an edge of 1% a year is ₹1,000 a year on ₹1 lakh. For a student, saving more and
+  keeping costs and taxes low beats any strategy edge until the account is much larger.
 
 ## 3b. How the RL part works (short version)
 

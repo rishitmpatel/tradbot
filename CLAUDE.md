@@ -34,7 +34,9 @@ Report from `RESULTS.md`, and from `FINAL_TEST.md` if it exists:
 * the data source line and the test-set dates
 * the **Verdict** section, verbatim. "NO STRATEGY PASSED" is a valid and common result.
 * any **WARNING / SUSPICIOUS** lines, verbatim
-* the RL experiments table: name, survived (x/y), OOS return, Sharpe, penalized Sharpe, verdict
+* the RL experiments table: name, survived (x/y), OOS return, Sharpe, penalized Sharpe,
+  Sharpe - B&H, DD / B&H DD, rule-only Sharpe, low-risk match, verdict
+* any "Low-risk match" line, verbatim (it is informational, NOT a pass)
 * the baselines table, briefly
 * the robustness table for the candidates
 * experiments with errors, plus their error messages

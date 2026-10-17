@@ -36,7 +36,7 @@ def test_all_configs_load():
 
 
 def test_self_checks(prices, cfg):
-    assert len(run_all_checks(prices, cfg)) == 4
+    assert len(run_all_checks(prices, cfg)) == 5
 
 
 def test_lookahead_feature_is_caught(prices, cfg):
@@ -135,3 +135,97 @@ def test_train_and_eval_tiny(cfg, tmp_path):
         # resume: second call must not retrain
         runs2 = run_experiment(c, tmp_path / algo / "runs", tmp_path / algo / "models", folds, n_jobs=1)
         assert runs2[0]["seconds"] == runs[0]["seconds"]
+
+
+# ---------------------------------------------------------------- round 2
+def _seg(cfg, prices, extra):
+    from agents import make_segment
+    c = deep_merge(cfg, extra)
+    a = next(iter(build_assets(prices, c["features"]).values()))
+    idx = a.features.index
+    return c, make_segment(a, idx[400], idx[700], c)
+
+
+def test_overlay_defaults_are_round1(cfg, prices):
+    _, seg = _seg(cfg, prices, {})
+    assert np.all(seg.base == 1.0) and seg.ref is None
+
+
+def test_relative_reward_is_zero_when_agent_copies_rule(cfg, prices):
+    """Reward = beat the rule. Holding exactly the rule (multiplier 1) must score 0 every day."""
+    from agents import build_env
+    c, seg = _seg(cfg, prices, {"env": {"base_signal": "momentum", "vol_target": 0.12, "actions": [0, 1],
+                                        "rebalance_band": 0.1},
+                                "reward": {"relative_to": "base", "drawdown_increase_penalty": 0.0,
+                                           "death_penalty": 0.0, "terminate_on_death": False}})
+    env = build_env([seg], c, cost_rate(c), train=False)
+    env.reset(options={"segment": 0})
+    rewards = []
+    while True:
+        _, r, term, trunc, _ = env.step(1)
+        rewards.append(r)
+        if term or trunc:
+            break
+    assert np.allclose(rewards, 0.0, atol=1e-9)
+
+
+def test_cash_is_not_free_with_relative_reward(cfg, prices):
+    """Round-1 lesson: with a benchmark-relative reward, cash scores the negative of the market."""
+    from agents import build_env
+    c, seg = _seg(cfg, prices, {"env": {"actions": [0, 1]},
+                                "reward": {"relative_to": "buy_and_hold", "drawdown_increase_penalty": 0.0,
+                                           "death_penalty": 0.0, "terminate_on_death": False, "scale": 1.0}})
+    env = build_env([seg], c, cost_rate(c), train=False)
+    env.reset(options={"segment": 0})
+    _, r, _, _, _ = env.step(0)   # stay in cash on day 1
+    t0 = env.t - 1
+    expected = -np.log1p((1 - cost_rate(c)) * (1 + seg.fwd_ret[t0]) - 1)
+    assert np.isclose(r, expected)
+
+
+def test_decision_interval_holds_position(cfg, prices):
+    from agents import build_env
+    from trading_env import rollout_positions
+
+    class Alternate:
+        k = 0
+
+        def predict(self, obs, deterministic=True):
+            self.k += 1
+            return self.k % 2, None
+    c, seg = _seg(cfg, prices, {"env": {"actions": [0, 1], "decision_interval": 5}})
+    env = build_env([seg], c, cost_rate(c), train=False)
+    pos = rollout_positions(Alternate(), env, 0)
+    assert len(pos) == seg.last_decision - seg.first + 1
+    blocks = pos[: len(pos) // 5 * 5].reshape(-1, 5)
+    assert np.all(blocks == blocks[:, :1])            # constant within each 5-day block
+    assert np.any(blocks[:-1, 0] != blocks[1:, 0])    # but it does change between blocks
+
+
+def test_differential_sharpe_reward_sign(cfg, prices):
+    from trading_env import Segment, TradingEnv
+    n = 60
+    seg = Segment(np.zeros((n, 1)), np.full(n, 0.002), pd.bdate_range("2020-01-01", periods=n))
+    env = TradingEnv([seg], {"actions": [0, 1]}, {"type": "differential_sharpe", "scale": 1.0}, 0.0, 0.5, train=False)
+    env.reset(options={"segment": 0})
+    _, r_long, *_ = env.step(1)
+    assert np.isfinite(r_long) and r_long > 0
+
+
+def test_band_reduces_trades():
+    from baselines import apply_band
+    raw = 0.5 + 0.03 * np.sin(np.arange(200))
+    assert np.abs(np.diff(apply_band(raw, 0.1))).sum() < np.abs(np.diff(raw)).sum() / 10
+    assert apply_band(np.array([0.5, 0.0, 0.52]), 0.1)[1] == 0.0   # exits always execute
+
+
+def test_relative_checks():
+    from evaluation import low_risk_match, relative_checks
+    pc = load_base()["pass_criteria"]
+    bench = {"mean_sharpe": 1.0, "mean_stitched_mdd": 0.30, "survival_rate": 0.5}
+    s = {"mean_sharpe": 0.95, "mean_stitched_mdd": 0.12, "survival_rate": 0.9}
+    ok, why = relative_checks(s, bench, {"mean_sharpe": 0.97}, pc)
+    assert not ok and len(why) == 2
+    assert low_risk_match(s, bench, pc) is True
+    ok, _ = relative_checks({**s, "mean_sharpe": 1.2}, bench, {"mean_sharpe": 1.1}, pc)
+    assert ok

@@ -1,0 +1,6 @@
+description: "PPO without overlay, positions 0/0.5/1, reward = differential Sharpe ratio"
+# WHY: isolates the reward change. Compare with round-1 ppo_base: if this also hides in
+# cash or loses, the reward was not the main problem - learning from scratch was.
+agent: {algo: PPO}
+env: {actions: [0, 0.5, 1], rebalance_band: 0.1}
+reward: {type: differential_sharpe, scale: 1.0, drawdown_increase_penalty: 0.0, death_penalty: 2.0}

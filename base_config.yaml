@@ -5,7 +5,7 @@
 # PAPER TRADING / RESEARCH ONLY. No broker, no real money.
 # =====================================================================
 
-round: 1                  # bump when you start a new research round
+round: 2                  # bump when you start a new research round
 experiment_cap: 30        # max variants run per round (extra files are skipped)
 
 data:
@@ -61,16 +61,35 @@ env:
   episode_length: 252     # training episode length (trading days)
   include_position: true  # agent sees its current position
   include_drawdown: true  # agent sees its current drawdown
+  include_base: auto      # agent sees the rule's base position (auto = only with an overlay)
+  # ---- Round 2: overlay ("residual RL"), see overlay.py -------------------
+  # position = base_position * action, base_position = base_signal x vol scale.
+  # Defaults (none / null) give round-1 behaviour: the action IS the position.
+  base_signal: none       # none | buy_and_hold | momentum | ma_crossover | mean_reversion
+  vol_target: null        # e.g. 0.12 = size each asset to ~12% annual volatility; null = off
+  vol_window: 20          # days of returns used to estimate volatility
+  max_leverage: 1.0       # never more than 100% of sleeve capital
+  rebalance_band: 0.0     # skip trades smaller than this (cuts cost of tiny rebalances)
+  decision_interval: 1    # agent decides every N days and holds in between
 
 reward:
-  # Per step (pre-scale):
-  #   reward = log(1 + net_return)                       profit after costs
+  # Per day (pre-scale):
+  #   core   = log(1 + net_return)                       profit after costs   (type: log_return)
+  #            [minus log(1 + benchmark net return)       if relative_to is set]
+  #         or differential Sharpe ratio of the return   (type: differential_sharpe)
+  #   reward = core
   #          - extra_cost_penalty * cost                  optional extra turnover penalty
-  #          - drawdown_penalty * drawdown                penalise being under water
-  #          - drawdown_increase_penalty * max(0, d_dd)   penalise NEW drawdown
+  #          - drawdown_penalty * dd_beyond_soft_limit    penalise being deep under water
+  #          - drawdown_increase_penalty * max(0, d_dd)   penalise NEW drawdown beyond the soft limit
   #          - risk_penalty * net_return^2                variance penalty
   #          - death_penalty  (once, if drawdown > survival.max_drawdown)
   #   reward *= scale
+  type: log_return          # log_return | differential_sharpe
+  relative_to: none         # none | base | buy_and_hold   (reward = beat this, not just make money)
+  drawdown_soft_limit: 0.0  # drawdown below this level is not penalised at all
+  dsr_eta: 0.0159           # differential Sharpe memory (~1/63: about a quarter)
+  dsr_init_vol: 0.01        # starting guess of daily volatility for the running Sharpe
+  dsr_clip: 5.0
   scale: 100.0
   extra_cost_penalty: 0.0
   drawdown_penalty: 0.0
@@ -115,6 +134,9 @@ baselines:
   ma_crossover: {fast: 50, slow: 200, allow_short: false}
   mean_reversion: {window: 20, entry_z: -1.0, exit_z: 0.0}
   momentum: {lookback: 252, skip: 21, allow_short: false}
+  # Round 2: simple risk-managed rules. If an RL overlay cannot beat these, RL added nothing.
+  vol_target: {target: 0.12, window: 20, band: 0.1}
+  trend_vol_target: {lookback: 252, skip: 21, target: 0.12, window: 20, band: 0.1}
 
 robustness:
   top_k: 3                        # how many top validation candidates to stress test
@@ -134,6 +156,11 @@ pass_criteria:
   robust_min_return: 0.0
   robust_min_sharpe: 0.5
   robust_min_survival_rate: 0.80
+  # Round 2 additions (extra requirements, nothing above was loosened):
+  must_beat_benchmark_sharpe: true   # OOS Sharpe must exceed buy-and-hold's on the same windows
+  must_beat_own_base_rule: true      # an overlay must beat its own rule run without the agent
+  low_risk_sharpe_tolerance: 0.1     # info flag "low-risk match": Sharpe >= B&H - 0.1 ...
+  low_risk_dd_ratio: 0.6             # ... and max drawdown <= 60% of B&H's (does NOT make it pass)
 
 runtime:
   n_jobs: auto            # parallel worker processes; auto = CPU cores - 1, or a number

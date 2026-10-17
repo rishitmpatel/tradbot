@@ -21,6 +21,14 @@ def _plain(x, digits=0):
     return "n/a" if x is None or x != x else f"{100 * x:.{digits}f}%"
 
 
+def _signed(x, digits=2):
+    return "n/a" if x is None or x != x else f"{x:+.{digits}f}"
+
+
+def _flag(x):
+    return "-" if x is None else ("yes" if x else "no")
+
+
 def _num(x, digits=2):
     return "n/a" if x is None or x != x else f"{x:.{digits}f}"
 
@@ -71,12 +79,15 @@ def _row(s: dict, verdict: str) -> str:
             f"| {s.get('survived', 0)}/{s.get('n_ok', 0)} ({_plain(s.get('survival_rate'))}) "
             f"| {_pct(s.get('mean_return'))} | {_pct(s.get('min_return'))} | {_num(s.get('mean_sharpe'))} "
             f"| {_num(s.get('penalized_sharpe'))} | {_num(s.get('dsr_prob'))} | {_num(s.get('mean_sortino'))} "
-            f"| {_plain(s.get('mean_stitched_mdd'), 1)} | {_num(s.get('mean_turnover'), 1)} | {verdict} |")
+            f"| {_plain(s.get('mean_stitched_mdd'), 1)} | {_num(s.get('mean_turnover'), 1)} "
+            f"| {_signed(s.get('sharpe_vs_bh'))} | {_num(s.get('dd_ratio_vs_bh'))} "
+            f"| {_num((s.get('own_base') or {}).get('mean_sharpe'))} | {_flag(s.get('low_risk_match'))} | {verdict} |")
 
 
 HEADER = ("| experiment | algo | status | runs ok | survived | OOS return (mean seeds) | worst seed | Sharpe | "
-          "penalized Sharpe | DSR prob | Sortino | max DD (stitched) | turnover/yr | verdict |\n"
-          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+          "penalized Sharpe | DSR prob | Sortino | max DD (stitched) | turnover/yr | Sharpe - B&H | DD / B&H DD | "
+          "rule-only Sharpe | low-risk match | verdict |\n"
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
 
 
 def write_results_md(path: Path, ctx: dict) -> None:
@@ -102,8 +113,14 @@ def write_results_md(path: Path, ctx: dict) -> None:
         L.append(f"Selected for the one-time final test: **{ctx['selected']}** (run `python final_test.py`).\n")
     else:
         L.append("**NO STRATEGY PASSED.** No strategy met all of: positive OOS return after costs, penalized Sharpe "
-                 f"> {ctx['pc']['min_penalized_sharpe']}, survival >= {ctx['pc']['min_survival_rate']:.0%}, and "
+                 f"> {ctx['pc']['min_penalized_sharpe']}, survival >= {ctx['pc']['min_survival_rate']:.0%}, "
+                 "Sharpe above buy-and-hold on the same windows, beating its own rule without RL (overlays), and "
                  "robustness under 2x costs and other seeds. This is a normal, honest outcome.\n")
+    lr = [s["name"] for s in ctx["experiments"] if s.get("low_risk_match")]
+    if lr:
+        L.append("Low-risk match (about buy-and-hold's Sharpe with <= "
+                 f"{ctx['pc'].get('low_risk_dd_ratio', 0.6):.0%} of its drawdown; informational, NOT a pass): "
+                 + ", ".join(lr) + "\n")
     if ctx["suspicious"]:
         L.append("**WARNING - suspiciously good results (assume bug/leakage until proven otherwise):** "
                  + ", ".join(ctx["suspicious"]) + "\n")
@@ -115,7 +132,11 @@ def write_results_md(path: Path, ctx: dict) -> None:
     L.append("\nColumns: *OOS return* = stitched walk-forward validation return after costs, mean over seeds. "
              "*Sharpe* = mean over seeds of the stitched OOS Sharpe. *Penalized Sharpe* = Sharpe minus the "
              "expected best-of-N Sharpe under no skill (N = variants tried). *DSR prob* = deflated Sharpe "
-             "probability. *Survived* = walk-forward runs (fold x seed) that never hit the drawdown kill switch.\n")
+             "probability. *Survived* = walk-forward runs (fold x seed) that never hit the drawdown kill switch. "
+             "*Sharpe - B&H* = Sharpe minus buy-and-hold's on the same windows. *DD / B&H DD* = stitched max "
+             "drawdown relative to buy-and-hold's (below 1 = shallower). *Rule-only Sharpe* = the overlay's rule "
+             "with the agent removed (multiplier fixed at 1); the agent must beat it. *Low-risk match* = "
+             "Sharpe within 0.1 of B&H with <= 60% of its drawdown (informational).\n")
 
     L.append("## Baselines (same windows, same costs, same survival rule; fixed textbook parameters)\n")
     L.append(HEADER)

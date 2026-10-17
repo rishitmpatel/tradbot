@@ -28,9 +28,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from backtest import Sleeve, compute_metrics, cost_rate, portfolio_backtest, window_sleeve
+from backtest import compute_metrics, cost_rate, portfolio_backtest, window_sleeve
 from baselines import baseline_positions
-from config_utils import ROOT, strategy_hash
+from config_utils import strategy_hash
 from data import dev_view, get_split, load_prices
 from features import build_assets
 
@@ -100,8 +100,7 @@ def run_task(task: dict) -> dict:
         elif task.get("eval_only"):
             raise FileNotFoundError(f"model not found for eval-only task: {model_path}")
         else:
-            w = int(cfg["env"].get("obs_window", 1))
-            segs = [make_segment(a, pd.Timestamp(fold.train_start), pd.Timestamp(fold.train_end), w)
+            segs = [make_segment(a, pd.Timestamp(fold.train_start), pd.Timestamp(fold.train_end), cfg)
                     for a in assets.values()]
             segs = [s for s in segs if s is not None]
             model = train_agent(cfg, segs, train_cfg_rate, seed, model_path.with_suffix(""))
@@ -214,17 +213,18 @@ def load_runs(runs_dir: Path, folds: list[Fold], seeds) -> list[dict]:
 # --------------------------------------------------------------------------
 # Baselines on the same walk-forward windows
 # --------------------------------------------------------------------------
-def run_baseline(cfg: dict, name: str, folds: list[Fold], runs_dir: Path, assets, cost_mult: float = 1.0) -> list[dict]:
+def run_rule(cfg: dict, pos_builder, folds: list[Fold], runs_dir: Path, assets, cost_mult: float = 1.0) -> list[dict]:
+    """Deterministic rule on every validation window. pos_builder(asset) -> position Series
+    over the asset's full close history (must be causal)."""
     rate = cost_rate(cfg, cost_mult)
-    params = cfg["baselines"].get(name) or {}
     runs_dir.mkdir(parents=True, exist_ok=True)
+    full = {t: pos_builder(a) for t, a in assets.items()}
     recs = []
     for f in folds:
         vs, ve = pd.Timestamp(f.val_start), pd.Timestamp(f.val_end)
         sleeves = []
-        for a in assets.values():
-            full_pos = baseline_positions(name, a.close, params)
-            sl = window_sleeve(a, vs, ve, lambda d, fp=full_pos: fp.reindex(d).fillna(0.0).values)
+        for t, a in assets.items():
+            sl = window_sleeve(a, vs, ve, lambda d, fp=full[t]: fp.reindex(d).fillna(0.0).values)
             if sl is not None:
                 sleeves.append(sl)
         bt = portfolio_backtest(sleeves, rate, float(cfg["capital"]["initial"]), float(cfg["survival"]["max_drawdown"]))
@@ -234,6 +234,22 @@ def run_baseline(cfg: dict, name: str, folds: list[Fold], runs_dir: Path, assets
         recs.append({"status": "ok", "fold": asdict(f), "seed": 0, "metrics": bt.metrics,
                      "csv": csv.name, "_dir": str(runs_dir)})
     return recs
+
+
+def run_baseline(cfg: dict, name: str, folds: list[Fold], runs_dir: Path, assets, cost_mult: float = 1.0) -> list[dict]:
+    params = cfg["baselines"].get(name) or {}
+    return run_rule(cfg, lambda a: baseline_positions(name, a.close, params), folds, runs_dir, assets, cost_mult)
+
+
+def run_own_base(cfg: dict, folds: list[Fold], runs_dir: Path, assets) -> list[dict]:
+    """The overlay's rule with the agent's multiplier fixed at 1 (same band, same costs).
+    If the RL agent cannot beat this, the RL part added nothing."""
+    from baselines import apply_band
+    from overlay import base_position
+
+    band = float(cfg["env"].get("rebalance_band", 0.0))
+    return run_rule(cfg, lambda a: pd.Series(apply_band(base_position(a.close, cfg).values, band), index=a.close.index),
+                    folds, runs_dir, assets)
 
 
 # --------------------------------------------------------------------------

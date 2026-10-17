@@ -7,9 +7,16 @@ agent:
   seeds: [0, 1, 2]
   ppo: {learning_rate: 0.0003, ent_coef: 0.01}
 env:
-  actions: [0, 1]
+  actions: [0, 1]            # with an overlay these are multipliers on the base position
   obs_window: 1
+  base_signal: none          # none | buy_and_hold | momentum | ma_crossover | mean_reversion
+  vol_target: null           # e.g. 0.12
+  rebalance_band: 0.0
+  decision_interval: 1
 reward:
+  type: log_return           # log_return | differential_sharpe
+  relative_to: none          # none | base | buy_and_hold
+  drawdown_soft_limit: 0.0
   drawdown_increase_penalty: 0.5
   risk_penalty: 0.0
 features:

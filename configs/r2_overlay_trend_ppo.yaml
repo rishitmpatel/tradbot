@@ -1,0 +1,6 @@
+description: "PPO overlay on vol-targeted 12-1 momentum (trend) rule; reward = beat the rule"
+# WHY: a trend rule already steps aside in long bear markets (2022). The agent only has to
+# fine-tune exposure, an easier job than timing from scratch.
+agent: {algo: PPO}
+env: {base_signal: momentum, vol_target: 0.12, actions: [0, 0.5, 1], rebalance_band: 0.1}
+reward: {relative_to: base, drawdown_soft_limit: 0.08, drawdown_increase_penalty: 1.0, death_penalty: 0.2}

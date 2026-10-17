@@ -55,7 +55,7 @@ pip install -r requirements.txt
 python -m pytest -q
 ```
 
-   You should see `11 passed`.
+   You should see `18 passed`.
 
 6. Download the real data and lock the test set:
 
@@ -109,6 +109,7 @@ features.py      log returns, momentum, volatility, RSI, MA ratio (causal, rolli
 backtest.py      P&L engine: 0.10% commission + 0.05% slippage, no lookahead, survival rule, metrics
 baselines.py     buy & hold, MA crossover (50/200), mean reversion (20d z), momentum (12-1)
 trading_env.py   Gymnasium environment (state / action / reward explained in comments)
+overlay.py       round 2: rule-based base position the agent scales (residual RL)
 agents.py        PPO + DQN from stable-baselines3, config-driven
 walkforward.py   folds, per-run training/evaluation, checkpoint/resume, summaries
 evaluation.py    multiple-testing (deflated Sharpe) penalty, pass/fail rules
@@ -165,6 +166,8 @@ out-of-sample equity curve.
 | survival | ≥ 80% of walk-forward runs never die |
 | robustness | 2x costs **and** new seeds: return > 0, Sharpe > 0.5, survival ≥ 80% |
 | sanity | raw Sharpe > 2.5 ⇒ automatic FAIL as "suspicious – assume bug/leakage" |
+| vs buy-and-hold (round 2) | OOS Sharpe above buy-and-hold's on the same windows |
+| vs its own rule (round 2) | an overlay agent must beat its rule run without the agent |
 
 *Penalized Sharpe* = validation Sharpe − the Sharpe that the best of N strategies
 with zero skill would show by luck. Here N counts every variant ever tried, across
@@ -178,7 +181,67 @@ for information. You can make them mandatory in `robustness.required_tests`.
 
 ---
 
-## 3. How the RL part works (short version)
+## 3. Round 2: what round 1 taught us and what changed
+
+**Round 1 result:** no strategy passed. Buy-and-hold had Sharpe 1.06 and +120.9%
+and beat every RL agent. `ppo_pure_return` made the most money of the RL agents
+but died in 6 of 27 runs. The variants with drawdown penalties learned to hold cash.
+
+**Why the agents held cash (the reward was the problem).** The default reward
+subtracted `0.5 × (new drawdown)` every day. Near a peak, any down day creates new
+drawdown, so the penalty is roughly `0.5 × the loss part of each day's return`. With
+about 1% daily volatility, that loss part averages about 0.4% per day (counting up
+days as 0), so the penalty is about 0.2% per day. The reward for being long is about +0.04% per day
+(the equity premium). The penalty is about 5 times larger than the reward. Gains
+earn nothing extra back because recovering from a drawdown is not rewarded. So
+"always in cash" was the **correct** answer to the question the reward asked.
+*Lesson: the agent optimises exactly what you write, not what you meant.*
+
+**Why `ppo_pure_return` died.** Its reward was profit only, with no death penalty
+and no early stop, so it never experienced the kill switch during training. It
+learned to be mostly long, like buy-and-hold, but at full size. Market crashes
+then pushed the equal-weight basket beyond -15%, and it paid trading costs for
+timing noise on top. That is buy-and-hold with extra costs and no safety margin.
+
+**Why buy-and-hold won.** Being long earns the equity premium for free. A from-scratch
+agent has to discover that from noisy daily rewards in 60k steps, and every flip
+costs 0.15%. It is much easier to start from a sensible rule and learn only when to
+deviate from it.
+
+**What changed (all config-driven; round-1 behaviour is still the default):**
+
+| knob | what it does | why |
+|---|---|---|
+| `env.base_signal` + `env.vol_target` | position = rule × agent's multiplier (`overlay.py`) | the agent starts at buy-and-hold or trend and only learns to cut risk |
+| `reward.relative_to` | reward = my return − benchmark return | cash is no longer free: cash in a rising market scores negative |
+| `reward.drawdown_soft_limit` | drawdown below e.g. 8% is not penalised | stop punishing normal wiggles, punish only deep drawdowns |
+| `reward.type: differential_sharpe` | reward = how much today improves a running Sharpe | optimise risk-adjusted return directly instead of hand-tuned penalties |
+| `env.rebalance_band` | skip position changes smaller than 0.1 | vol-targeting otherwise trades tiny amounts every day |
+| `env.decision_interval` | decide every N days | less noise to chase, fewer trades |
+| new baselines `vol_target`, `trend_vol_target` | the same rules with no RL | if RL cannot beat these, RL added nothing |
+| pass: beat buy-and-hold Sharpe, beat own rule | extra requirements | the honest question is "better than the simple thing?" |
+| `low-risk match` column | Sharpe about B&H's with ≤60% of its drawdown | useful to know, but **not** a pass |
+
+Nothing in the pass criteria was loosened. Changing the bar after seeing results
+would be moving the goalposts. Round-1 configs moved to `configs/round1/` and still
+count toward the multiple-testing penalty: N = 20 now, so the Sharpe haircut is
+bigger than in round 1. Expect "NO STRATEGY PASSED" again. The useful information
+is in the `Sharpe - B&H`, `DD / B&H DD` and `rule-only Sharpe` columns.
+
+**The 8 round-2 variants (`configs/r2_*.yaml`, each file explains its reason):**
+
+| variant | idea | tests the round-1 finding... |
+|---|---|---|
+| `r2_overlay_bh_ppo` | PPO scales vol-targeted buy-and-hold by 0/0.5/1; reward = beat the rule; DD penalty only beyond 8% | B&H won → build on it |
+| `r2_overlay_bh_dqn` | same with DQN | does it depend on the algorithm? |
+| `r2_overlay_trend_ppo` | same, but the rule is 12-1 momentum | a trend rule already avoids long bear markets |
+| `r2_overlay_bh_dsr_ppo` | overlay + differential Sharpe reward, no DD penalty | penalties caused cash → reward Sharpe directly |
+| `r2_dsr_ppo` | no overlay, Sharpe reward | isolates the reward change from the overlay change |
+| `r2_active_vs_bh_ppo` | no overlay, reward = return − B&H return, DD penalty beyond 8% | target: match B&H with less drawdown |
+| `r2_overlay_bh_weekly_ppo` | overlay, decides every 5 days | costs + daily noise |
+| `r2_voltarget_pure_return_ppo` | round-1 pure-return reward with vol-targeted sizing | was the dying only a sizing problem? |
+
+## 3b. How the RL part works (short version)
 
 Read `trading_env.py` and `agents.py`. Their comments are written as a tutorial.
 

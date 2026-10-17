@@ -41,13 +41,13 @@ def main() -> None:
     assets, split = load_dev_assets(cfg)
     fold = make_folds(cfg, assets, split)[args.fold]
     asset = assets[args.ticker or next(iter(assets))]
-    seg = make_segment(asset, pd.Timestamp(fold.val_start), pd.Timestamp(fold.val_end), int(cfg["env"]["obs_window"]))
+    seg = make_segment(asset, pd.Timestamp(fold.val_start), pd.Timestamp(fold.val_end), cfg)
     env = build_env([seg], cfg, cost_rate(cfg), train=False)
     obs, _ = env.reset(options={"segment": 0})
 
     print(f"{cfg['name']} ({cfg['agent']['algo']}) fold {fold.k} seed {args.seed} on {asset.ticker}, "
           f"validation {fold.val_start} -> {fold.val_end}")
-    print("STATE = features of today (z-scored) + [position, drawdown*10]. "
+    print("STATE = features of today (z-scored) + [base position (overlay only), position, drawdown*10]. "
           f"Features: {cfg['features']['list']}\n")
     for _ in range(args.days):
         date = seg.dates[env.t].date()
@@ -57,9 +57,10 @@ def main() -> None:
         brain = think.get("Q_values") or think.get("action_probs")
         extra = f" V(s)={think['state_value_V']:+.3f}" if "state_value_V" in think else ""
         label = "Q" if "Q_values" in think else "pi"
-        print(f"{date} state[pos={obs[-2] if cfg['env']['include_drawdown'] else obs[-1]:+.1f}] "
+        base_txt = f"base={seg.base[env.t]:+.2f} " if env.inc_base else ""
+        print(f"{date} state[{base_txt}pos={env.pos:+.2f}] "
               f"{label}={{{', '.join(f'{k}: {v:+.3f}' for k, v in brain.items())}}}{extra} "
-              f"-> hold {info['pos']:+.1f}  next-day net {info['net']:+.3%}  reward {reward:+.3f}")
+              f"-> hold {info['positions'][0]:+.2f}  net {sum(info['nets']):+.3%} over {len(info['nets'])}d  reward {reward:+.3f}")
         obs = obs_next
         if term or trunc:
             break

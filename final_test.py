@@ -22,7 +22,6 @@ import json
 import logging
 import sys
 import time
-from pathlib import Path
 
 import matplotlib
 
@@ -94,8 +93,7 @@ def main() -> int:
 
     rows, curves = [], {}
     for seed in cfg["agent"]["seeds"]:
-        w = int(cfg["env"].get("obs_window", 1))
-        segs = [s for s in (make_segment(a, data_start, train_end, w) for a in assets.values()) if s is not None]
+        segs = [s for s in (make_segment(a, data_start, train_end, cfg) for a in assets.values()) if s is not None]
         model = train_agent(cfg, segs, rate, int(seed), model_root / name / "final" / f"seed{seed}")
         sleeves = []
         for a in assets.values():

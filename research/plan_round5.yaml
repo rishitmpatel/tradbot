@@ -1,0 +1,147 @@
+# =====================================================================
+# ROUND 5 PRE-REGISTERED RESEARCH PLAN
+# Written and committed BEFORE any round-5 code ran on real data.
+# factor_research.py records this file's hash on the first real run. Hypotheses added or
+# changed afterwards become NEW, EXPLORATORY trials (counted and labelled in reports).
+# The laptop agent must never edit this file.
+# =====================================================================
+round: 5
+
+# ---------------------------------------------------------------------
+# Data: Ken French Data Library (free, no login). Monthly and daily returns since 1926.
+# https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html
+# All returns are total returns in USD. "big_*" are value-weighted LARGE-CAP portfolios
+# (top 50% of NYSE market cap), reformed by Ken French: momentum monthly, value every June.
+# These are long-only and close to what index funds hold, but they are NOT directly tradeable:
+# see the implementation section and india_costs.py for what an Indian investor can buy.
+# ---------------------------------------------------------------------
+data:
+  base_url: "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
+  us:
+    factors_monthly: F-F_Research_Data_Factors_CSV.zip          # Mkt-RF, SMB, HML, RF
+    factors_daily: F-F_Research_Data_Factors_daily_CSV.zip
+    size_momentum_monthly: 6_Portfolios_ME_Prior_12_2_CSV.zip   # BIG HiPRIOR = large-cap winners
+    size_value_monthly: 6_Portfolios_2x3_CSV.zip                # BIG HiBM = large-cap value
+  regions:                                                      # CONFIRMATION ONLY
+    Developed_ex_US:
+      required: true
+      factors_monthly: Developed_ex_US_3_Factors_CSV.zip
+      factors_daily: Developed_ex_US_3_Factors_Daily_CSV.zip
+      size_momentum_monthly: Developed_ex_US_6_Portfolios_ME_Prior_12_2_CSV.zip
+      size_value_monthly: Developed_ex_US_6_Portfolios_ME_BE-ME_CSV.zip
+    Japan:
+      required: false                                           # reported, not required
+      factors_monthly: Japan_3_Factors_CSV.zip
+      factors_daily: Japan_3_Factors_Daily_CSV.zip
+      size_momentum_monthly: Japan_6_Portfolios_ME_Prior_12_2_CSV.zip
+      size_value_monthly: Japan_6_Portfolios_ME_BE-ME_CSV.zip
+    Asia_Pacific_ex_Japan:
+      required: false
+      factors_monthly: Asia_Pacific_ex_Japan_3_Factors_CSV.zip
+      factors_daily: Asia_Pacific_ex_Japan_3_Factors_Daily_CSV.zip
+      size_momentum_monthly: Asia_Pacific_ex_Japan_6_Portfolios_ME_Prior_12_2_CSV.zip
+      size_value_monthly: Asia_Pacific_ex_Japan_6_Portfolios_ME_BE-ME_CSV.zip
+
+# ---------------------------------------------------------------------
+# Periods. Nothing on or after the locked test set's first month is ever loaded.
+# ---------------------------------------------------------------------
+periods:
+  exploration: {start: "1963-07", end: null}          # US only. null = month before the locked test set
+  confirmation_us: {start: "1927-01", end: "1963-06"}  # US, 36 years NEVER used by this project
+  confirmation_regions: {start: "1991-07", end: null}  # other markets, never used for factor tilts here
+
+# ---------------------------------------------------------------------
+# Common rules (identical for every hypothesis AND the benchmark)
+# ---------------------------------------------------------------------
+common:
+  vol_target: 0.10            # every strategy AND the benchmark is scaled to ~10% ex-ante volatility
+  vol_lookback_months: 12     # trailing realised volatility (known at month end)
+  max_gross: 1.0              # no leverage; the rest sits in T-bills (which earn the T-bill rate)
+  switch_cost_bps: 15         # per unit of weight traded by our own rule (same as all rounds)
+  sleeve_drag_bps_per_year:   # fund fees + the portfolio's own internal turnover (assumption, doubled in robustness)
+    market: 5
+    big_value: 40
+    big_momentum: 80
+  kill_switch: 0.15           # same survival rule: fresh capital each calendar year, dead if month-end equity < 85% of peak
+  tom_days: {before: 1, after: 3}   # turn of month = last trading day + first 3 trading days
+
+benchmark: market             # the equity market at the same 10% vol target (excess-return Sharpe is compared)
+
+# ---------------------------------------------------------------------
+# Hypotheses (each = one trial in the ledger; N before this round = 34)
+# ---------------------------------------------------------------------
+hypotheses:
+  R5_H1_market_trend:
+    sleeve: {market: 1.0}
+    trend: {lookback_months: 12}
+    reason: >
+      Time-series momentum on the equity market: hold it only while its trailing 12-month return
+      beats T-bills, else hold T-bills. Steps aside in long bear markets (1929-32, 1973-74,
+      2000-02, 2008). Evidence: Moskowitz-Ooi-Pedersen 2012, Hurst-Ooi-Pedersen 2017, Faber 2007.
+  R5_H2_big_momentum:
+    sleeve: {big_momentum: 1.0}
+    reason: >
+      Long-only momentum tilt: large caps with the best 12-1 month returns. Momentum is the most
+      persistent anomaly across markets and centuries (Jegadeesh-Titman 1993; Asness-Moskowitz-
+      Pedersen 2013; Geczy-Samonov 2016). Behavioural story: under-reaction, then herding.
+      Investable through momentum index funds (India: Nifty200 Momentum 30; US: MTUM).
+  R5_H3_big_value:
+    sleeve: {big_value: 1.0}
+    reason: >
+      Long-only value tilt: cheap large caps (high book-to-market). Risk/behavioural premium
+      (Fama-French 1992). Honest test of decay: value has done badly since ~2007.
+  R5_H4_value_momentum:
+    sleeve: {big_value: 0.5, big_momentum: 0.5}
+    reason: >
+      Value and momentum are negatively correlated, so a 50/50 mix diversifies better than either
+      alone (Asness-Moskowitz-Pedersen 2013). Diversification across premia, not just assets.
+  R5_H5_value_momentum_trend:
+    sleeve: {big_value: 0.5, big_momentum: 0.5}
+    trend: {lookback_months: 12}
+    reason: >
+      H4 with the H1 trend filter on the market: the tilts' premia plus crash avoidance.
+      Combines two documented effects; tests whether they add up.
+  R5_H6_turn_of_month:
+    sleeve: {market: 1.0}
+    turn_of_month: true
+    reason: >
+      Calendar effect with a mechanical cause: salaries, pension and SIP-style contributions flow
+      in around month end, pushing prices up on the last day and first 3 days of each month
+      (Lakonishok-Smidt 1988; McConnell-Xu 2008). Uses daily data. Expected to be eaten by costs
+      and Indian short-term tax - tested because "is there a calendar edge?" deserves a real answer.
+
+# A diagnostic, not a candidate (cannot become a finalist), counted as one exploratory trial
+# because you asked: round-4 H3 trend with idle cash earning T-bills, Sharpe measured on
+# EXCESS returns, bootstrap p-value vs 60/40 on the same accounting.
+diagnostics:
+  R5_D1_P5_recheck: {round4_hypothesis: H3_trend_following}
+
+# ---------------------------------------------------------------------
+# Pre-registered finalist selection (exploration only)
+# ---------------------------------------------------------------------
+finalist_selection:
+  max_finalists: 3
+  must: [survival_rate >= 0.8, excess_return_at_2x_costs > 0]
+  rank_by: exploration_excess_sharpe
+
+# ---------------------------------------------------------------------
+# Pre-registered confirmation (finalists only; runs once, after owner approval)
+# A finalist CONFIRMS if it meets ALL criteria in BOTH confirmation_us AND every required region.
+# ---------------------------------------------------------------------
+confirmation_criteria:
+  excess_sharpe_gt_benchmark: true     # strategy beats the market at equal (10%) risk
+  excess_return_gt: 0.0                # earns more than T-bills after costs
+  survival_rate_ge: 0.8
+
+# ---------------------------------------------------------------------
+# Forward paper trading of finalists (tradeable ETF stand-ins; via LRS for an Indian investor)
+# ---------------------------------------------------------------------
+implementation:
+  cash: SHV                   # 0-1 year US T-bills ETF
+  sleeves: {market: SPY, big_momentum: MTUM, big_value: IWD}
+  trend_signal: SPY
+  india_equivalents:          # informational: what you could buy on NSE instead (not backtested)
+    market: "NIFTYBEES / Nifty 50 index fund"
+    big_momentum: "Nifty200 Momentum 30 index fund or ETF"
+    big_value: "Nifty200 Value 30 / Nifty500 Value 50 index fund"
+    cash: "liquid fund / LIQUIDBEES"

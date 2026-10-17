@@ -113,3 +113,73 @@ Sharpe > 0.5, survives. It was written before anyone looked at the test set.
 Two years of test data have a Sharpe standard error of about 0.7. So the test can expose a
 broken strategy, but it cannot prove a good one. Only forward paper trading over more years
 can do that.
+
+---
+
+# Round 4 proposals (P1 stays OFF as you decided; P2 stays ON)
+
+## P4 - Measure PROFIT AT EQUAL RISK, not raw return and not Sharpe alone (NOT active)
+
+**The quant logic.** Every strategy has two dials:
+- **Sharpe (efficiency):** how much return you get per unit of risk.
+- **Volatility (throttle):** how much risk you run.
+
+Profit ≈ Sharpe × volatility. So "it made less money" tells you nothing until you know how much risk it ran.
+
+Your own numbers (2007-2024, all 18 windows) show this:
+
+| | Sharpe | CAGR as run | max DD |
+|---|---|---|---|
+| buy & hold (6-asset basket) | 1.10 | 11.6% | 26.2% |
+| vol_target | 1.26 | 7.8% | 13.4% |
+
+- `vol_target` ran at roughly half the risk, so it made less money.
+- **At equal risk it is the more profitable engine.** At equal volatility it would return about 1.26 / 1.10 ≈ 15% more per unit of risk. This is the rough Sharpe arithmetic; the pipeline computes the exact "CAGR at 10% vol" with financing costs.
+- **It is not "just a risk reducer"; it's a better engine running at low throttle.**
+- **It is also not a big edge:** 1.26 vs 1.10 over 18 years is well within noise for strategies this similar. That's why the round-4 report shows a bootstrap p-value.
+
+**The kill switch caps the throttle.** A 15% drawdown kill switch inside one-year windows makes much more than about 10% volatility risky; buy & hold at ~11% volatility died in 3 of 18 windows. So the most this project can expect is roughly **CAGR ≈ Sharpe × 10%**:
+- Sharpe 0.7 → about 7% a year.
+- Sharpe 1.0 → about 10% a year.
+
+More profit requires a higher Sharpe (more independent return sources) or a looser kill switch. Clever timing can't buy it.
+
+**Proposed success test (all must hold; the report shows it as the "P4 (NOT active)" column):**
+1. **Beats 60/40 at equal risk.** CAGR at 10% volatility, after costs and leverage financing (T-bill + 1%), above 60/40's CAGR at 10% volatility. 60/40 is the portfolio a sensible investor holds anyway.
+2. **The edge is unlikely to be luck.** Paired block-bootstrap p < 0.05 for "Sharpe not above 60/40", and deflated-Sharpe probability > 0.95 with the full trial count (34+).
+3. **Survives.** Survival >= 80%, and still profitable at 2x costs.
+4. **Confirms.** Passes the pre-registered confirmation on the untouched hold-out (P6).
+5. Then the one-time locked test, then **12+ months of forward paper trading** before any real money.
+
+**Why replace "penalized Sharpe > 1".** With 34 trials and an 18-year record, that bar needs a measured Sharpe around 1.6-1.75. Long-only multi-asset strategies have historically delivered roughly 0.5-1.0 (my estimate from the literature, not measured here). Under the current bar the honest expectation for round 4 is again **NO STRATEGY PASSED**, however good a strategy is. P4 asks the question you actually care about ("more profit than the sensible default, at the same risk, and real?") and still controls for luck. It is not a loosening in disguise: points 1, 2 and 4 are new hurdles the current bar does not have.
+
+## P5 - Idle cash earns the T-bill rate (NOT active)
+
+The engine charges T-bill + 1% on borrowed money but pays 0% on idle cash.
+- Real brokers pay interest on cash: T-bills paid about 5% in 2007 and in 2023-24.
+- Trend rules hold 30-60% cash in bad years, so the current accounting understates them. Buy & hold holds no cash and is unaffected.
+- The round-4 table shows "Sharpe if cash earned T-bill" next to the active number, so you can see how much it matters.
+- **Switch:** `common.credit_cash_interest: true` in `research/plan_round4.yaml`. That would be a plan change, so it must be decided before the first round-4 run. Otherwise it counts as a new exploratory variant.
+
+## P6 - Approve the confirmation hold-out: mutual funds, 1991-2006 (needs your approval)
+
+Switch: `research.confirmation_approved: true` in `base_config.yaml`.
+
+**What it is.** The ≤ 3 finalists (picked by a pre-registered rule from exploration only) and the benchmarks run once on:
+- 10 Vanguard/Fidelity mutual funds, covering US large and small caps, international, emerging markets, long and intermediate Treasuries, corporate bonds, high yield, precious-metals miners and REITs;
+- the years 1991-2006, which include the 1994 bond crash, 1998 (LTCM) and the 2000-02 bear market.
+
+No instrument or year of it has been used anywhere in this project.
+
+**Recommended:** approve it BEFORE the first round-4 run. The pipeline then goes exploration → finalists → confirmation mechanically, and nobody sees the exploration results before the finalists are fixed. After it runs once, the finalists are locked (`confirmation_LOCK.json`).
+
+**What I rejected:**
+- **Other countries' ETFs:** most start in 1996 or later and are highly correlated with SPY and EFA. Their 2007-2024 years are already "seen" by us.
+- **Sector ETFs:** equities only, so they don't fit multi-asset rules.
+- **A new walk-forward on 2007-2024:** those years are burned.
+- **Forward paper trading alone:** honest but slow. It needs years to say anything, so it runs in parallel, not instead.
+
+**Risks to accept if you approve:**
+- Yahoo's mutual-fund history before 2000 may have gaps or bad prices. The confirmation report includes a data-quality table and lists funds that failed to load.
+- VGPMX holds gold MINERS, not gold. There's no commodity or dollar fund, so trend/momentum have fewer assets to work with.
+- The trend-following literature covers 1991-2006, so the hold-out is fresh for OUR selection, not for the idea itself.

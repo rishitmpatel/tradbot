@@ -29,14 +29,16 @@ def prices(cfg):
 
 
 def test_all_configs_load():
-    files = list_experiment_files()
-    assert len(files) >= 2
+    """Active AND archived configs must still load (archived ones still count as trials)."""
+    from config_utils import CONFIGS_DIR
+    files = list_experiment_files() + sorted(CONFIGS_DIR.glob("round*/*.yaml"))
+    assert len(files) >= 22
     names = [load_experiment(f)["name"] for f in files]
     assert len(set(names)) == len(names)
 
 
 def test_self_checks(prices, cfg):
-    assert len(run_all_checks(prices, cfg)) == 6
+    assert len(run_all_checks(prices, cfg)) == 7
 
 
 def test_lookahead_feature_is_caught(prices, cfg):
@@ -312,6 +314,100 @@ def test_long_history_respects_test_lock(cfg):
     strategies, folds, _, split = run_long_history(load_base(), synthetic=True)
     assert pd.Timestamp(folds[-1].val_end) < split.test_start
     assert pd.Timestamp(folds[0].val_start) < pd.Timestamp("2008-01-01")       # covers 2008
-    runs = strategies["r3_rule_vol_target"]
+    runs = strategies["baseline:vol_target"]
     early = early_period_runs(runs)
     assert early and all(r["fold"]["val_start"] < "2016-01-01" for r in early)
+
+
+# ---------------------------------------------------------------- round 4
+def _panel(cfg):
+    from rules import close_panel
+    return close_panel(build_assets(load_prices(cfg), cfg["features"])).dropna()
+
+
+def test_leverage_pays_financing():
+    from backtest import weights_backtest
+    d = pd.bdate_range("2021-01-04", periods=253)
+    z = np.zeros((252, 1))
+    rf = np.full(252, 0.0002)
+    bt = weights_backtest(d[:-1], d[1:], np.full((252, 1), 1.5), z, np.ones((252, 1), bool), 0.0, 1.0, None,
+                          rf=rf, borrow_spread=0.01)
+    expect = (1 - 0.5 * (0.0002 + 0.01 / 252)) ** 252
+    assert np.isclose(bt.equity.iloc[-1], expect)
+    cash = weights_backtest(d[:-1], d[1:], np.full((252, 1), 0.5), z, np.ones((252, 1), bool), 0.0, 1.0, None,
+                            rf=rf, credit_cash=True)
+    assert np.isclose(cash.equity.iloc[-1], (1 + 0.5 * 0.0002) ** 252)
+
+
+def test_equal_risk_and_bootstrap_tools():
+    from evaluation import bootstrap_sharpe_diff, cagr_at_vol
+    rng = np.random.default_rng(1)
+    b = rng.normal(0.0002, 0.01, 2520)
+    a = b + rng.normal(0.0004, 0.002, 2520)          # clearly better, highly correlated
+    assert bootstrap_sharpe_diff(a, b, n_boot=500) < 0.05
+    assert bootstrap_sharpe_diff(b, b, n_boot=200) == 1.0
+    c10, k = cagr_at_vol(b * 0.5, np.zeros(2520), 0.10)
+    assert np.isclose(k, 0.10 / (0.5 * b.std(ddof=1) * np.sqrt(252))) and np.isfinite(c10)
+
+
+def test_monthly_rebalance_days():
+    from allocation import rebalance_days
+    idx = pd.bdate_range("2021-01-01", "2021-04-30")
+    r = rebalance_days(idx)
+    assert r.sum() == 4 and all(idx[r].day <= 3)
+
+
+def test_tracker_append_only_and_resumable(cfg, tmp_path):
+    """Running in two pieces must equal running once, and old rows are never rewritten."""
+    from paper_trade import update_tracker
+    from selfcheck import ALLOC_SPECS
+    panel = _panel(cfg)
+    rf = pd.Series(0.0001, index=panel.index)
+    plan = {"hypotheses": ALLOC_SPECS, "common": {"costs_bps": 15, "borrow_spread": 0.01, "max_drawdown_kill": 0.15},
+            "universes": {"exploration": {"benchmarks": {"equity": panel.columns[0], "bonds": panel.columns[1]}}}}
+    names = ["lv", "tr", "bench:60_40"]
+    start = panel.index[2000]
+    mid, end = panel.index[2100], panel.index[2250]
+    update_tracker(panel.loc[:mid], rf, plan, names, tmp_path / "a", start)
+    first = pd.read_csv(tmp_path / "a" / "lv.csv")
+    added = update_tracker(panel.loc[:end], rf, plan, names, tmp_path / "a", start)
+    again = update_tracker(panel.loc[:end], rf, plan, names, tmp_path / "a", start)
+    both = pd.read_csv(tmp_path / "a" / "lv.csv")
+    update_tracker(panel.loc[:end], rf, plan, names, tmp_path / "b", start)
+    once = pd.read_csv(tmp_path / "b" / "lv.csv")
+    assert added["lv"] == 150 and again["lv"] == 0
+    pd.testing.assert_frame_equal(both.iloc[: len(first)], first)
+    assert np.allclose(both["equity"], once["equity"])
+
+
+def test_research_stage_synthetic(tmp_path, monkeypatch):
+    """Exploration -> finalists (pre-registered rule) -> confirmation gated by approval."""
+    import research
+    base = deep_merge(load_base(), {"data": {"source": "synthetic"}})
+    res = research.run_research(base, tmp_path, True, legacy_trials=27, approved=False)
+    assert res["n_total"] == 27 + len(res["plan"]["hypotheses"])
+    assert res["confirmation"]["status"].startswith("not approved")
+    fin = res["finalists"]
+    assert len(fin) <= 3
+    for n in fin:
+        assert res["summ"][n]["survival_rate"] >= 0.8 and res["summ"][n]["costs_2x_return"] > 0
+    assert all(res["summ"][n]["verdict"] == "FAIL" for n in res["plan"]["hypotheses"])   # nothing confirmed
+    res2 = research.run_research(base, tmp_path, True, legacy_trials=27, approved=True)
+    if fin:
+        assert res2["confirmation"]["status"] == "ok"
+        assert (tmp_path / "research" / "confirmation_LOCK.json").exists()
+    # a changed hypothesis becomes a NEW exploratory trial
+    plan = research.load_plan()
+    plan["hypotheses"]["H1_equal_weight"]["params"] = {"window": 20}
+    monkeypatch.setattr(research, "load_plan", lambda path=None: plan)
+    res3 = research.run_research(base, tmp_path, True, legacy_trials=27, approved=False)
+    assert res3["status"]["H1_equal_weight"] == "exploratory"
+    assert res3["n_total"] == res["n_total"] + 1
+
+
+def test_confirmation_universe_is_disjoint():
+    import research
+    plan = research.load_plan()
+    E, C = plan["universes"]["exploration"], plan["universes"]["confirmation"]
+    assert not set(E["tickers"]) & set(C["tickers"])
+    assert pd.Timestamp(C["eval_end"]) < pd.Timestamp(E["eval_start"])

@@ -5,8 +5,14 @@
 # PAPER TRADING / RESEARCH ONLY. No broker, no real money.
 # =====================================================================
 
-round: 3                  # bump when you start a new research round
+round: 4                  # bump when you start a new research round
 experiment_cap: 30        # max variants run per round (extra files are skipped)
+
+research:
+  # Round 4 (research.py, research/plan_round4.yaml). The confirmation hold-out (mutual
+  # funds 1991-2006) runs ONLY after the owner approves it (PROPOSALS.md, P6). The laptop
+  # agent must never change this line.
+  confirmation_approved: false
 
 multiple_testing:
   # From round 3 rules can be selected, so every rule we have LOOKED AT counts as a trial.
@@ -168,7 +174,7 @@ pass_criteria:
   min_dsr_prob: 0.95
   # PROPOSAL P2 (PROPOSALS.md): rules must ALSO pass on 2007-2015 (return > 0, Sharpe > 0.5,
   # survival >= 80%), the history no rule was ever evaluated on. Reported either way.
-  require_long_history: false
+  require_long_history: true     # P2 approved by the owner (round 3)
   min_oos_return: 0.0            # stitched walk-forward OOS return after costs (mean over seeds) must be >
   min_penalized_sharpe: 1.0      # validation Sharpe minus multiple-testing haircut must be >
   min_survival_rate: 0.80        # share of walk-forward runs that never die

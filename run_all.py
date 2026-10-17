@@ -105,7 +105,42 @@ def update_ledger(path: Path, cfgs: list[dict], rnd: int) -> int:
         key = f"{c['name']}@{strategy_hash(c)}"
         ledger["trials"].setdefault(key, {"round": rnd, "first_seen": time.strftime("%Y-%m-%d %H:%M")})
     save_json(path, ledger)
-    return len(ledger["trials"])
+    return sum(1 for k in ledger["trials"] if not k.startswith("r4:"))   # round-4 trials are counted by research.py
+
+
+def legacy_trial_count(res_root: Path, base_raw: dict, configs_dir: Path = CONFIGS_DIR, n_current: int = 0) -> int:
+    """Trials from the config-based pipeline (rounds 1-3 and any current configs/*.yaml):
+    ledger entries, never fewer than the archived configs, plus rule baselines looked at."""
+    path = res_root / "trial_ledger.json"
+    ledger = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"trials": {}}
+    n = sum(1 for k in ledger["trials"] if not k.startswith("r4:"))
+    n = max(n, archived_variant_count(Path(configs_dir)) + n_current)
+    return n + int((base_raw.get("multiple_testing") or {}).get("extra_trials", 0))
+
+
+def trial_table(res_root: Path, legacy: int, rres: dict) -> str:
+    """Every trial ever counted, by round (requirement: RESULTS.md lists all experiments + counts)."""
+    path = res_root / "trial_ledger.json"
+    ledger = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"trials": {}}
+    by_round: dict = {}
+    for k, v in ledger["trials"].items():
+        by_round.setdefault(v.get("round", "?"), []).append((k, v))
+    L = ["## Trial ledger (every experiment ever counted)\n",
+         f"Total used for the Sharpe penalty: **{rres['n_total']}** = {legacy} from rounds 1-3 (ledger entries, never "
+         "fewer than the archived configs, + 5 rule baselines) + "
+         f"{rres['n_r4']} round-4 hypotheses.\n",
+         "| round | trials in ledger | names |", "|---|---|---|"]
+    for r in sorted(by_round, key=str):
+        items = by_round[r]
+        names = ", ".join(sorted(f"{k.split('@')[0]}" + (" (exploratory)" if v.get("kind") == "exploratory" else "")
+                                 for k, v in items))
+        L.append(f"| {r} | {len(items)} | {names} |")
+    L.append("\nArchived configs on disk (counted even if a ledger is lost):\n")
+    for d in sorted(CONFIGS_DIR.glob("round*")):
+        files = sorted(f.stem for f in d.glob("*.yaml"))
+        L.append(f"- {d.name}: {len(files)} - {', '.join(files)}")
+    L.append("- rule baselines looked at in rounds 1-3 (multiple_testing.extra_trials): 5")
+    return "\n".join(L) + "\n"
 
 
 def archived_variant_count(configs_dir: Path) -> int:
@@ -121,6 +156,7 @@ def main() -> int:
     ap.add_argument("--only", nargs="*", help="run only these experiment names")
     ap.add_argument("--n-jobs", type=int, default=None)
     ap.add_argument("--skip-robustness", action="store_true")
+    ap.add_argument("--skip-research", action="store_true", help="skip the round-4 research stage and paper tracker")
     ap.add_argument("--configs-dir", default=str(CONFIGS_DIR))
     args = ap.parse_args()
 
@@ -180,9 +216,8 @@ def main() -> int:
             load_errors.append({"name": f.stem, "status": f"config error: {e}", "verdict": "FAIL",
                                 "reasons": [f"config error: {e}"]})
             log.error("config %s invalid: %s", f.name, e)
-    n_trials = update_ledger(res_root / "trial_ledger.json", cfgs, int(base_raw.get("round", 1)))
-    n_trials = max(n_trials, archived_variant_count(Path(args.configs_dir)) + len(cfgs))
-    n_trials += int((base_raw.get("multiple_testing") or {}).get("extra_trials", 0))
+    update_ledger(res_root / "trial_ledger.json", cfgs, int(base_raw.get("round", 1)))
+    n_trials = legacy_trial_count(res_root, base_raw, Path(args.configs_dir), len(cfgs))
     log.info("%d experiments this run; %d variants tried in total (all rounds)", len(cfgs), n_trials)
 
     assets, split = load_dev_assets(base)
@@ -372,6 +407,43 @@ def main() -> int:
         "overview_plot": rel(ov_path), "plots": plots, "final_test_note": ft_note})
     save_json(res_root / "all_summaries.json", {"experiments": summaries, "baselines": baseline_summaries,
                                                 "robustness": robustness, "load_errors": load_errors})
+
+    # 10. round 4: research stage (exploration -> finalists -> approved confirmation) --------------
+    if not args.skip_research:
+        from research import run_research, write_report
+        try:
+            # smoke runs never touch the confirmation hold-out
+            approved = bool((base_raw.get("research") or {}).get("confirmation_approved", False)) and not args.smoke
+            rres = run_research(base, res_root, args.synthetic, n_trials, approved)
+            rmd = write_report(rres, ROOT / ("RESEARCH.md" if not (args.synthetic or args.smoke)
+                                             else f"RESEARCH_{mode.upper()}.md"), res_root / "plots" / "round4.png")
+            with open(md_path, "a", encoding="utf-8") as f:
+                f.write("\n" + rmd)
+                f.write("\n" + trial_table(res_root, n_trials, rres))
+            r4_pass = [n for n in rres["plan"]["hypotheses"] if rres["summ"][n]["verdict"] == "PASS"]
+            if r4_pass and not passing:
+                best = max(r4_pass, key=lambda n: rres["summ"][n]["penalized_sharpe"])
+                save_json(res_root / "selection.json", {
+                    "selected": best, "kind": "research", "hash": None, "passing": r4_pass,
+                    "n_trials": rres["n_total"], "generated": time.strftime("%Y-%m-%d %H:%M:%S"), "mode": mode,
+                    "note": "final_test.py evaluates ONLY the selected strategy, ONCE."})
+                selected = best
+            log.info("round 4 PASSING: %s | finalists: %s", r4_pass or "none", rres["finalists"])
+        except Exception as e:
+            log.error("research stage crashed: %s\n%s", e, traceback.format_exc())
+            with open(md_path, "a", encoding="utf-8") as f:
+                f.write(f"\n## Round 4 research\n\n**CRASHED**: {type(e).__name__}: {e}\n")
+
+    # 11. forward paper tracker (real data only) ---------------------------------------------------
+    if not (args.synthetic or args.smoke or args.skip_research):
+        try:
+            from paper_trade import run_tracker
+            pmd = run_tracker(base_raw)
+            if pmd:
+                with open(md_path, "a", encoding="utf-8") as f:
+                    f.write("\n## Forward paper trading\n\n" + pmd.split("\n", 1)[1])
+        except Exception as e:
+            log.error("paper tracker failed: %s", e)
     mins = (time.time() - t_start) / 60
     log.info("=== done in %.1f min. Report: %s", mins, md_path)
     log.info("PASSING: %s | SELECTED for final test: %s", [s["name"] for s in passing] or "none", selected)

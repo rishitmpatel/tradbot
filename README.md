@@ -55,7 +55,7 @@ pip install -r requirements.txt
 python -m pytest -q
 ```
 
-   You should see `25 passed`.
+   You should see `31 passed`.
 
 6. Download the real data and lock the test set:
 
@@ -76,11 +76,17 @@ python run_all.py --smoke
    It writes `RESULTS_SMOKE_REAL.md`. The numbers mean nothing because of the tiny
    training budget. This step only checks that the pipeline works.
 
-8. **Overnight run** (expect about 2–5 h on a 4-core laptop; it scales with CPU cores):
+8. **Full run.** Since round 4 there is no RL training in the queue, so it takes **about 5-15
+   minutes**, mostly the first download of about 25 tickers. RL configs in `configs/` would make
+   it take hours.
 
 ```powershell
 python run_all.py
 ```
+
+   One command does everything: data, self-checks, round-4 research, the confirmation hold-out
+   (only if you approved it in `base_config.yaml`), and the forward paper tracker. Run it again
+   any day to extend the paper-trading log; finished work is reused.
 
    Alternatively, double-click `run_overnight.bat`.
    Before you leave it, stop Windows from sleeping: **Settings → System → Power →
@@ -113,7 +119,11 @@ overlay.py       round 2: rule-based base position the agent scales (residual RL
 rules.py         round 3: rules as candidates (per-asset rules + correlation-aware portfolio rule)
 long_history.py  round 3: rules over 2007-2024 incl. 2008 (informational unless P2 approved)
 rl_signal_ladder.py  round 3: synthetic experiment - how strong must a signal be for PPO to find it?
-PROPOSALS.md     round 3: changes to the pass bar that need YOUR approval
+PROPOSALS.md     changes to the pass bar / validation that need YOUR approval (P1-P6)
+research/plan_round4.yaml  round 4: the PRE-REGISTERED hypotheses (committed before any real run)
+allocation.py    round 4: multi-asset allocation rules (equal weight, risk parity, trend, momentum, ensemble)
+research.py      round 4: exploration -> finalists -> confirmation hold-out -> report (called by run_all.py)
+paper_trade.py   round 4: forward paper-trading tracker, append-only CSV log in paper/ (called by run_all.py)
 agents.py        PPO + DQN from stable-baselines3, config-driven
 walkforward.py   folds, per-run training/evaluation, checkpoint/resume, summaries
 evaluation.py    multiple-testing (deflated Sharpe) penalty, pass/fail rules
@@ -325,6 +335,79 @@ small, the most anything can earn from daily timing on these features, after cos
 - The pass bar is unchanged. PROPOSALS.md argues, with numbers, that it is too strict: a
   strategy with a true Sharpe of 1.0 would pass it about 2% of the time. Two switches in
   `base_config.yaml` are there for you to approve or not (P1, P2).
+
+## 3d. Round 4: more return sources, honest measurement, a clean hold-out
+
+### Where an edge can and cannot exist (what 3 rounds taught us)
+
+**Not here:**
+- **Daily timing of these assets from price features.** Real lag-1 autocorrelation is about 0
+  (SPY -0.10, QQQ -0.09, others near 0). The signal ladder showed that even a perfect trader needs
+  about 0.2 before 15 bps costs are covered. RL on daily bars is not the tool for this problem.
+- **Picking the "best" rule on a 6-asset basket.** With 27-34 trials and 9-18 years of data, the
+  luck haircut is as big as any plausible edge.
+- **Intraday trading or single-stock picking:** no data or cost advantage for us.
+
+**Possibly here (economic reasons + decades of published evidence):**
+1. **More independent return sources.** Equities, bonds, credit, gold, commodities, real estate and
+   the dollar earn different premia and crash at different times. Holding more of them raises
+   return per unit of risk (Sharpe). Diversification is the one free lunch.
+2. **Trend following across asset classes.** It steps out of assets in long declines (2008,
+   2022), which is exactly where buy-and-hold dies. It works through diversification across many
+   markets, not on 6.
+3. **Combining rules whose returns are not correlated** (risk parity + trend + momentum).
+4. **Then choosing the risk level deliberately.** See the next section.
+
+### Profit = Sharpe x risk (the most important idea in this project)
+
+- **Two dials.** Sharpe is how efficient the engine is; volatility is how hard you press the throttle.
+- **vol_target only looked like "just a risk reducer".** It had a better engine than buy-and-hold
+  (Sharpe 1.26 vs 1.10 over 18 years) running at half the throttle, so it made half the money.
+- **Compare profit at equal risk.** That's the "CAGR at 10% vol" column.
+- **The kill switch caps the throttle at about 10% volatility.** So realistic profit is roughly
+  Sharpe x 10% a year (Sharpe 0.7 → ~7%, Sharpe 1.0 → ~10%).
+- **The only honest way to more profit is a higher Sharpe**, then leverage up to the risk you accept,
+  paying interest on the borrowed part. `H6` does exactly that, with leverage capped at 1.5x.
+
+### The round-4 hypotheses (pre-registered in `research/plan_round4.yaml`, committed first)
+
+| | rule | why |
+|---|---|---|
+| H0 | round 3's vol_target on the broad universe | control: did its edge depend on the 6-asset basket? |
+| H1 | equal weight 1/N, monthly | diversification baseline, famously hard to beat |
+| H2 | inverse-volatility (naive risk parity) | equal risk from each asset; low-risk assets earn more per unit of risk |
+| H3 | trend: hold an asset only while its 12-month return beats T-bills | crisis protection, documented for a century |
+| H4 | dual momentum: top third by 12-1 month return, if it beats T-bills | relative strength, a different return source from H3 |
+| H5 | ensemble of H2 + H3 + H4 | diversification across RULES |
+| H6 | H5 scaled to 10% predicted volatility, leverage <= 1.5x, financed at T-bill + 1% | turns Sharpe into profit at the kill switch's risk limit |
+
+The rules are long only and rebalance monthly (first trading day; low turnover keeps costs small).
+The exploration universe is 13 ETFs (US large/small, developed, emerging, long/intermediate
+Treasuries, TIPS, IG and high-yield credit, gold, commodities, REITs, dollar), over 2007 → the day
+before the locked test set. Benchmarks: SPY buy-and-hold and 60/40 (SPY/TLT, monthly).
+
+**Rejected:**
+- *More RL:* no specific, testable reason it would add value. Daily predictability is about 0, and
+  rebalancing under proportional costs has a known simple solution (trade only outside a band).
+  The RL code stays as a learning tool.
+- *Carry and value:* need futures or fundamental data that Yahoo doesn't provide reliably.
+- *Crypto:* too short a history to validate, and extreme regime changes.
+- *Tuning lookbacks or targets:* the parameters are textbook values. Neighbouring values are run
+  only as robustness checks.
+
+### Validation plan (since 2007-2015 and 2016-2024 are both "seen")
+
+1. **Exploration** (development data): all 7 hypotheses, every one counted as a trial (N = 27 + 7 = 34).
+   Anything added later is marked EXPLORATORY in the report and also counted.
+2. **Finalists** (at most 3, pre-registered rule): survival >= 80%, profitable at 2x costs,
+   top 3 by Sharpe. Chosen from exploration only.
+3. **Confirmation** (needs your approval, P6): finalists on 10 mutual funds over 1991-2006, a
+   different set of instruments and years never used anywhere. Pre-registered pass criteria.
+   Runs once; then the finalists are locked.
+4. **Locked test set** (2024-10-16 → 2026-10-16): only when you decide, once.
+5. **Forward paper trading** (`paper/`): finalists + 60/40 + buy-and-hold, logged every trading day
+   from the first round-4 run onwards. It never logs anything inside the locked test period.
+   Append-only, committed to git. **12+ months of this before any real money.**
 
 ## 3b. How the RL part works (short version)
 

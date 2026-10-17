@@ -118,7 +118,8 @@ def portfolio_backtest(sleeves: list[Sleeve], rate: float, initial: float, max_d
 
 def weights_backtest(dates: pd.DatetimeIndex, real_dates: pd.DatetimeIndex, target: np.ndarray, fwd: np.ndarray,
                      tradable: np.ndarray, rate: float, initial: float, max_dd: float | None,
-                     tickers: list[str] | None = None) -> BacktestResult:
+                     tickers: list[str] | None = None, rf: np.ndarray | None = None,
+                     borrow_spread: float = 0.0, credit_cash: bool = False) -> BacktestResult:
     """Portfolio-level engine (round 3) for rules that set WEIGHTS of total equity.
 
     target[i, j]  weight of asset j decided at close of dates[i] (fraction of TOTAL equity)
@@ -126,6 +127,10 @@ def weights_backtest(dates: pd.DatetimeIndex, real_dates: pd.DatetimeIndex, targ
     tradable[i,j] False if asset j's exchange was closed on dates[i]: its weight then just drifts
     Unlike the sleeve engine, capital moves between assets, and every rebalance pays costs.
     Same timing rule as everywhere: decide at close i, earn close i -> next close.
+
+    Leverage (total weight > 1) is financed: the borrowed part pays rf[i] + borrow_spread/252
+    per step. Idle cash (total weight < 1) earns rf[i] only if credit_cash (off by default).
+    rf[i] = risk-free rate for the step, as a daily fraction (e.g. 0.0002 = 5% a year / 252).
     """
     target = np.asarray(target, dtype=float)
     fwd = np.asarray(fwd, dtype=float)
@@ -147,6 +152,12 @@ def weights_backtest(dates: pd.DatetimeIndex, real_dates: pd.DatetimeIndex, targ
         traded = np.abs(want - held).sum()
         turnover[i] = traded
         gross = float(want @ fwd[i])
+        invested = float(want.sum())
+        r_f = float(rf[i]) if rf is not None else 0.0
+        if invested > 1.0:                       # borrowed money is not free
+            gross -= (invested - 1.0) * (r_f + borrow_spread / 252.0)
+        elif credit_cash:
+            gross += (1.0 - invested) * r_f
         eq[i + 1] = eq[i] * (1.0 - traded * rate) * (1.0 + gross)
         held = want * (1.0 + fwd[i]) / (1.0 + gross) if (1.0 + gross) > 0 else np.zeros(k)
         held_hist[i] = want

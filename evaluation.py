@@ -163,3 +163,49 @@ def final_verdict(summary: dict, robustness: dict, required: list[str], pc: dict
             ok = False
             reasons.append(f"robustness '{test}' failed: {', '.join(why)}")
     return {"pass": ok, "reasons": reasons, "robust": rob}
+
+
+# --------------------------------------------------------------------------
+# Round 4: measuring PROFIT at equal risk, and whether an edge is real
+# --------------------------------------------------------------------------
+def bootstrap_sharpe_diff(a: np.ndarray, b: np.ndarray, block: int = 21, n_boot: int = 2000, seed: int = 0) -> float:
+    """p-value that strategy a's Sharpe is NOT above b's (paired circular block bootstrap).
+    Both series are resampled with the SAME blocks of days, so their correlation is kept:
+    two strategies that move together need a smaller gap to be told apart.
+    Small p (e.g. < 0.05) = the Sharpe advantage is unlikely to be luck of this sample."""
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    n = len(a)
+    if n < 2 * block or len(b) != n:
+        return float("nan")
+    rng = np.random.default_rng(seed)
+    n_blocks = int(np.ceil(n / block))
+
+    def sharpe(x):
+        sd = x.std(ddof=1)
+        return x.mean() / sd if sd > 0 else 0.0
+    worse = 0
+    for _ in range(n_boot):
+        starts = rng.integers(0, n, n_blocks)
+        idx = (starts[:, None] + np.arange(block)[None, :]).reshape(-1)[:n] % n
+        if sharpe(a[idx]) - sharpe(b[idx]) <= 0:
+            worse += 1
+    return worse / n_boot
+
+
+def cagr_at_vol(rets: np.ndarray, rf_daily: np.ndarray, target_vol: float = 0.10, borrow_spread: float = 0.01,
+                periods_per_year: float = 252.0) -> tuple[float, float]:
+    """CAGR the strategy would have earned if run at `target_vol` annual volatility.
+    Scale k = target / realised vol. k > 1 means borrowing: the extra (k - 1) pays T-bill +
+    spread every day. k < 1 leaves cash earning nothing (same as the active design).
+    Returns (cagr, k). This compares strategies at EQUAL RISK - the honest way to ask
+    'which makes more money?' (a 2x riskier strategy should make more, that is not skill)."""
+    r = np.asarray(rets, float)
+    vol = r.std(ddof=1) * np.sqrt(periods_per_year)
+    if vol <= 0:
+        return float("nan"), float("nan")
+    k = target_vol / vol
+    fin = (k - 1.0) * (np.asarray(rf_daily, float) + borrow_spread / periods_per_year) if k > 1 else 0.0
+    scaled = k * r - fin
+    growth = np.prod(1.0 + scaled)
+    years = len(r) / periods_per_year
+    return float(growth ** (1 / years) - 1) if growth > 0 else -1.0, float(k)

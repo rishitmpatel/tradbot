@@ -42,6 +42,51 @@ from run_all import mode_dirs, mode_name, prepare_cfg, setup_logging  # noqa: E4
 log = logging.getLogger("final_test")
 
 
+def final_test_research(name: str, base: dict, out_dir, lock, md, synthetic: bool, sel: dict) -> int:
+    """One-time test of a round-4 allocation rule on the locked period (exploration universe)."""
+    from research import (benchmark_set, load_plan, load_universe, register, run_windows, spec_hash,
+                          strategy_set, summarize_windows)
+
+    plan = load_plan()
+    reg = register(plan, out_dir.parent / "research")
+    if reg.get(name) != "registered":
+        log.error("%s is not a registered, unchanged hypothesis (%s). Refusing.", name, reg.get(name))
+        return 1
+    out_dir.mkdir(parents=True, exist_ok=True)
+    save_json(lock, {"strategy": name, "hash": spec_hash(plan["hypotheses"][name]),
+                     "run_at": time.strftime("%Y-%m-%d %H:%M:%S")})
+    split = get_split(base, load_prices(base))
+    E = plan["universes"]["exploration"]
+    panel, rf, _, missing = load_universe(base, E, plan["universes"]["risk_free"],
+                                          split.data_end + pd.Timedelta(days=1), synthetic)
+    win = [(split.test_start, split.data_end)]
+    rows = {}
+    for n, (W, reb) in {**strategy_set(plan, panel, rf, [name]), **benchmark_set(E, panel)}.items():
+        rows[n] = summarize_windows(n, run_windows(W, reb, panel, rf, win, plan["common"]), rf)
+    fc = base.get("final_test_criteria") or {}
+    s = rows[name]
+    ok = (s.get("mean_return", -1) > fc.get("min_return", 0.0) and s.get("mean_sharpe", -9) > fc.get("min_sharpe", 0.0)
+          and (s.get("survived", 0) == s.get("n_ok", 1) or not fc.get("must_survive", True)))
+    L = ["# FINAL TEST (one-time, locked test set) - round 4\n"]
+    if synthetic:
+        L.append("> **SYNTHETIC DATA - NOT REAL RESULTS.**\n")
+    L.append(f"Strategy **{name}** (registered round-4 hypothesis), selected from {sel['n_trials']} trials. "
+             f"Test period {split.test_start.date()} -> {split.data_end.date()}. Fixed rule, no training. "
+             f"Tickers not loaded: {', '.join(missing) or 'none'}.\n")
+    L.append(f"**Pre-registered final-test check** (return > {fc.get('min_return', 0.0):+.0%}, Sharpe > "
+             f"{fc.get('min_sharpe', 0.0)}, survives): **{'MET' if ok else 'NOT MET'}**. Two years is short: this can "
+             "catch a broken strategy but cannot prove a good one.\n")
+    L.append("| strategy | return | CAGR | Sharpe | max DD | survived |\n|---|---|---|---|---|---|")
+    for n, r in rows.items():
+        L.append(f"| {n} | {r.get('mean_return', float('nan')):+.1%} | {r.get('cagr', float('nan')):+.1%} | "
+                 f"{r.get('mean_sharpe', float('nan')):.2f} | {r.get('mean_stitched_mdd', float('nan')):.1%} | "
+                 f"{r.get('survived', 0)}/{r.get('n_ok', 0)} |")
+    L.append("\nDo NOT change the strategy based on this result. The test set is now used up.\n")
+    md.write_text("\n".join(L) + "\n", encoding="utf-8")
+    log.info("Wrote %s", md.name)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--synthetic", action="store_true")
@@ -72,6 +117,8 @@ def main() -> int:
         return 0
 
     name = sel["selected"]
+    if sel.get("kind") == "research":     # round-4 allocation rule
+        return final_test_research(name, base, out_dir, lock, md, args.synthetic, sel)
     cfg = prepare_cfg(load_experiment(CONFIGS_DIR / f"{name}.yaml"), args.synthetic, args.smoke)
     if strategy_hash(cfg) != sel["hash"]:
         log.error("Config %s changed since validation (hash %s != %s). Refusing: re-run run_all.py.",

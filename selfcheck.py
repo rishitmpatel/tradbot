@@ -142,6 +142,67 @@ def check_portfolio_rule_causal(assets: dict, n_checks: int = 4) -> None:
     assert (full.values >= -1e-12).all() and (full.sum(axis=1) <= 1.0 + 1e-9).all(), "portfolio rule leverage/short"
 
 
+ALLOC_SPECS = {
+    "ew": {"rule": "equal_weight", "params": {}},
+    "iv": {"rule": "inverse_vol", "params": {"window": 60}},
+    "tr": {"rule": "trend", "params": {"lookback": 252, "window": 60}},
+    "xs": {"rule": "xs_momentum", "params": {"lookback": 252, "skip": 21, "top_frac": 0.34, "window": 60}},
+    "pv": {"rule": "per_asset_vol_target", "params": {"target": 0.12, "window": 20, "band": 0.02}},
+    "en": {"rule": "ensemble", "params": {"members": ["iv", "tr", "xs"]}},
+    "lv": {"rule": "vol_target_portfolio", "params": {"base": "en", "target": 0.10, "max_gross": 1.5}},
+}
+
+
+def check_allocation_rules(panel: pd.DataFrame, n_checks: int = 3) -> None:
+    """Round-4 rules: weights on day t identical when later prices are deleted (no lookahead),
+    long only, total <= 1 (or <= max_gross for the leveraged rule)."""
+    from allocation import build_weights
+
+    rf = pd.Series(0.0001, index=panel.index)
+    full = {n: build_weights(n, sp, ALLOC_SPECS, panel, rf, None, {}) for n, sp in ALLOC_SPECS.items()}
+    rng = np.random.default_rng(3)
+    for i in rng.choice(np.arange(300, len(panel) - 1), size=n_checks, replace=False):
+        tp, trf = panel.iloc[: i + 1], rf.iloc[: i + 1]
+        for n, sp in ALLOC_SPECS.items():
+            t = build_weights(n, sp, ALLOC_SPECS, tp, trf, None, {})
+            assert np.allclose(full[n].iloc[i].values, t.iloc[-1].values, atol=1e-9), \
+                f"LOOKAHEAD in allocation rule {sp['rule']} at {panel.index[i].date()}"
+    for n, w in full.items():
+        cap = ALLOC_SPECS[n]["params"].get("max_gross", 1.0)
+        assert (w.values >= -1e-12).all(), f"{n}: short position"
+        assert (w.sum(axis=1) <= cap + 1e-9).all(), f"{n}: exposure above {cap}"
+
+
+def check_tracker_matches_engine(panel: pd.DataFrame) -> None:
+    """The forward paper tracker must reproduce the backtest engine's equity exactly."""
+    import tempfile
+    from pathlib import Path
+
+    from allocation import build_weights, rebalance_days
+    from backtest import weights_backtest
+    from paper_trade import update_tracker
+
+    plan = {"hypotheses": {"lv": ALLOC_SPECS["lv"], **ALLOC_SPECS},
+            "common": {"costs_bps": 15, "borrow_spread": 0.01, "max_drawdown_kill": 0.15},
+            "universes": {"exploration": {"benchmarks": {"equity": panel.columns[0], "bonds": panel.columns[1]}}}}
+    rf = pd.Series(0.0001, index=panel.index)
+    days = panel.index[len(panel) // 2: len(panel) // 2 + 260]
+    W = build_weights("lv", ALLOC_SPECS["lv"], ALLOC_SPECS, panel, rf, None, {})
+    reb = rebalance_days(panel.index)
+    dec, real = days[:-1], days[1:]
+    tradable = np.repeat(pd.Series(reb, index=panel.index).loc[dec].values[:, None], panel.shape[1], axis=1)
+    tradable[0] = True
+    fwd = (panel.shift(-1) / panel - 1.0).loc[dec].fillna(0.0).values
+    bt = weights_backtest(dec, real, W.loc[dec].values, fwd, tradable, 0.0015, 1e5, 0.15, rf=rf.loc[dec].values,
+                          borrow_spread=0.01)
+    with tempfile.TemporaryDirectory() as d:
+        update_tracker(panel.loc[: days[-1]], rf, plan, ["lv"], Path(d), days[0])
+        log = pd.read_csv(Path(d) / "lv.csv")
+    # the engine applies trading cost at the decision; the tracker logs equity after it
+    assert np.isclose(log["equity"].iloc[-1], bt.equity.iloc[-1], rtol=1e-6), \
+        f"paper tracker {log['equity'].iloc[-1]:.2f} != engine {bt.equity.iloc[-1]:.2f}"
+
+
 def run_all_checks(prices: dict, cfg: dict) -> list[str]:
     done = []
     check_features_causal(prices, cfg)
@@ -162,4 +223,9 @@ def run_all_checks(prices: dict, cfg: dict) -> list[str]:
     check_weights_engine(a, cfg)
     check_portfolio_rule_causal(assets)
     done.append("portfolio engine accounting + portfolio rule causal, no leverage")
+    from rules import close_panel
+    panel = close_panel(assets)
+    check_allocation_rules(panel)
+    check_tracker_matches_engine(panel.dropna())
+    done.append("round-4 allocation rules causal/long-only/capped; paper tracker == engine")
     return done

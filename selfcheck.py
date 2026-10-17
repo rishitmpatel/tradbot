@@ -274,6 +274,69 @@ def check_r5_sleeve_causal(panel: pd.DataFrame) -> None:
     assert (full.sum(axis=1) <= 1 + 1e-9).all() and (full.values >= -1e-12).all(), "r5_sleeve leverage/short"
 
 
+def check_round6() -> None:
+    """Round 6: overnight/intraday return timing (future-poison), stress fills, open-price reliability check,
+    daily kill switch, momentum guard decided at the previous month end, Indian tax arithmetic."""
+    import overnight_research as o6
+    from factor_data import synthetic_market
+
+    plan = o6.load_plan()
+    th = plan["overnight"]["reliability"]
+    df = o6.synthetic_ohlc(3, "2015-01-01", "2016-12-31")
+    on = o6.day_returns(df, "overnight")
+    t1 = df.index[1]
+    assert np.isclose(on[t1], df["open"].iloc[1] / df["close"].iloc[0] - 1), "overnight return timing"
+    assert np.isclose(o6.day_returns(df, "intraday")[t1], df["close"].iloc[1] / df["open"].iloc[1] - 1), "intraday timing"
+    for i in (50, 200, 400):
+        bad = df.copy()
+        bad.iloc[i + 1:] *= 3.0
+        r = o6.day_returns(bad, "overnight")
+        assert np.allclose(on.iloc[:i], r.iloc[:i]), "LOOKAHEAD in overnight returns"
+    st = o6.day_returns(df, "overnight", 0.0, -0.002)
+    assert (st <= on + 1e-12).all(), "stress fill better than the open"
+    hit = on <= -0.002
+    assert hit.any() and np.allclose(st[hit], (df["low"] / df["close"].shift(1) - 1)[hit.index][hit]), "stress fill != low"
+    assert o6.open_quality(df, th)["reliable"], "good open prices flagged unreliable"
+    fake = o6.synthetic_ohlc(3, "2015-01-01", "2016-12-31", fake_open=True)
+    assert not o6.open_quality(fake, th)["reliable"], "fake open prices (= previous close) NOT flagged"
+    broken = df.copy()
+    broken.loc[broken.index[::10], "open"] = broken["high"] * 1.05
+    assert not o6.open_quality(broken, th)["reliable"], "open outside the day's range NOT flagged"
+    split = df.copy()
+    split.iloc[300:] /= 10.0                                                   # an unadjusted 1:10 split
+    assert not o6.open_quality(split, th)["reliable"], "unadjusted split NOT flagged"
+
+    idx = pd.bdate_range("2001-01-01", "2001-12-31")
+    r = pd.Series(0.001, index=idx)
+    r.iloc[100] = -0.20
+    out, wins = o6.run_daily(r, 0.15, idx[0], idx[-1])
+    assert wins[0]["dead"] and (out.iloc[101:] == 0).all() and np.isclose(out.iloc[100], -0.20), "daily kill switch"
+
+    m = synthetic_market(2, "1990-01-01", "2010-12-31")["monthly"]
+    spec = plan["hypotheses"]["R6_H2_momentum_crash_guard"]
+    g = o6.guard_state(spec, m)
+    for i in (60, 120, 200):
+        t = m.index[i]
+        bad = m.copy()
+        bad.loc[bad.index >= t, ["market", "big_momentum"]] = -0.5
+        assert np.isclose(g[t], o6.guard_state(spec, bad)[t], equal_nan=True), f"LOOKAHEAD in momentum guard at {t.date()}"
+
+    fy = pd.bdate_range("2020-04-01", "2022-03-31")
+    rr = pd.Series(np.where(fy < "2021-04-01", np.log(0.9) / 252, np.log(1.1) / 252), index=fy)
+    rr = np.exp(rr) - 1
+    assert o6.after_tax_cagr(rr, 1e6, 0.2, 0.04)["tax_share"] == 0.0, "loss carry-forward"
+    c = plan["overnight"]["costs"]["india"]
+    assert 3.0 < o6.india_round_trip(c, 1e6) * 1e4 < 6.0, "India round-trip cost out of range"
+    d = pd.bdate_range("2010-01-01", "2020-12-31")
+    px = pd.Series(100 * 1.12 ** (np.arange(len(d)) / 252), index=d)
+    h, w = o6.tax_harvest_sim(px, 1e5, False, c), o6.tax_harvest_sim(px, 1e5, True, c)
+    gain = 1e5 * (px.iloc[-1] / px.iloc[0]) - 1e5
+    assert abs(h["tax_share"] * 1e5 - 0.125 * (gain - 125_000) * 1.04) < 0.02 * gain, "buy & hold LTCG"
+    assert w["final"] > h["final"] and w["harvests"] >= 9, "tax harvesting does not help on a rising market"
+    flat = pd.Series(100.0, index=d)
+    assert o6.tax_harvest_sim(flat, 1e6, True, c)["harvests"] == 0, "harvested without a gain"
+
+
 def run_all_checks(prices: dict, cfg: dict) -> list[str]:
     done = []
     check_features_causal(prices, cfg)
@@ -302,4 +365,7 @@ def run_all_checks(prices: dict, cfg: dict) -> list[str]:
     check_round5()
     check_r5_sleeve_causal(panel.dropna())
     done.append("round-5: French parser, turn-of-month calendar, no lookahead (future-poison), engine, kill switch, tax sim")
+    check_round6()
+    done.append("round-6: overnight timing (future-poison), stress fills, fake-open detection, daily kill switch, "
+                "momentum guard causal, loss carry-forward, tax harvesting")
     return done

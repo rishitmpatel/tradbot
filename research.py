@@ -504,7 +504,9 @@ def main() -> int:
     setup_logging(base, "research_" + ("synthetic" if args.synthetic else "real"))
     res_root, _ = mode_dirs(base, args.synthetic, False)
     approved = bool((base_raw.get("research") or {}).get("confirmation_approved", False))
-    res = run_research(base, res_root, args.synthetic, legacy_trial_count(res_root, base_raw), approved)
+    from factor_research import count_prefix
+    other = legacy_trial_count(res_root, base_raw) + count_prefix(res_root, "r5:") + count_prefix(res_root, "r6:")
+    res = run_research(base, res_root, args.synthetic, other, approved)
     md = ROOT / ("RESEARCH.md" if not args.synthetic else "RESEARCH_SYNTHETIC.md")
     write_report(res, md, res_root / "plots" / "round4.png")
     log.info("wrote %s", md.name)

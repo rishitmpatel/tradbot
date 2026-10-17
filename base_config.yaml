@@ -5,7 +5,7 @@
 # PAPER TRADING / RESEARCH ONLY. No broker, no real money.
 # =====================================================================
 
-round: 5                  # bump when you start a new research round
+round: 6                  # bump when you start a new research round
 experiment_cap: 30        # max variants run per round (extra files are skipped)
 
 research:
@@ -19,6 +19,13 @@ research5:
   # (US 1927-1963 + other developed markets, Ken French data) runs ONLY after the owner
   # approves it (PROPOSALS.md, P10). The laptop agent must never change this line.
   confirmation_approved: true
+
+research6:
+  # Round 6 (overnight_research.py, research/plan_round6.yaml). Its confirmation (NIFTYBEES opens +
+  # Emerging Markets momentum, data never used before) runs ONCE, automatically, right after the
+  # finalists are frozen by the pre-registered rule (PROPOSALS.md, P11). Set false BEFORE a run to
+  # block it. The laptop agent must never change this line.
+  run_confirmation: true
 
 multiple_testing:
   # From round 3 rules can be selected, so every rule we have LOOKED AT counts as a trial.

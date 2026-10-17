@@ -123,6 +123,39 @@ def final_test_research5(name: str, base: dict, out_dir, lock, md, synthetic: bo
     return 0
 
 
+def final_test_research6(name: str, base: dict, out_dir, lock, md, synthetic: bool, sel: dict) -> int:
+    from overnight_research import final_test_round6, load_plan, register_round6
+    from run_all import mode_dirs
+    res_root, _ = mode_dirs(base, synthetic, False)
+    status, _ = register_round6(load_plan(), res_root)
+    if status.get(name) != "registered":
+        log.error("%s is not a registered, unchanged round-6 hypothesis (%s). Refusing.", name, status.get(name))
+        return 1
+    out_dir.mkdir(parents=True, exist_ok=True)
+    save_json(lock, {"strategy": name, "kind": "research6", "run_at": time.strftime("%Y-%m-%d %H:%M:%S")})
+    res = final_test_round6(name, base, synthetic)
+    fc = base.get("final_test_criteria") or {}
+    key = next(k for k in res if not k.endswith("buy_and_hold") and not k.startswith("bench:"))
+    s = res[key]
+    L = ["# FINAL TEST (one-time, locked test set) - round 6\n"]
+    if synthetic:
+        L.append("> **SYNTHETIC DATA - NOT REAL RESULTS.**\n")
+    L.append(f"Strategy **{name}**, selected from {sel['n_trials']} trials. Same costs and kill switch as in research. "
+             f"Pre-registered check applies to: {key}.\n")
+    L.append("| series | result |\n|---|---|")
+    for n, r in res.items():
+        L.append(f"| {n} | {json.dumps({k: (round(v, 4) if isinstance(v, float) else v) for k, v in r.items() if not str(k).startswith('_')})} |")
+    tr = s.get("mean_return", s.get("total_return"))
+    sharpe = s.get("mean_sharpe")
+    ok = (tr is not None and tr > fc.get("min_return", 0.0) and sharpe is not None and sharpe > fc.get("min_sharpe", 0.0)
+          and not s.get("dead", False) and (s.get("survived", 1) == s.get("n_ok", 1)))
+    L.append(f"\n**Pre-registered final-test check** (return > {fc.get('min_return', 0.0):+.0%}, Sharpe > "
+             f"{fc.get('min_sharpe', 0.0)}, survives): **{'MET' if ok else 'NOT MET'}**. Two years cannot prove an edge.\n")
+    md.write_text("\n".join(L) + "\n", encoding="utf-8")
+    log.info("Wrote %s", md.name)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--synthetic", action="store_true")
@@ -157,6 +190,8 @@ def main() -> int:
         return final_test_research(name, base, out_dir, lock, md, args.synthetic, sel)
     if sel.get("kind") == "research5":    # round-5 long-history premium
         return final_test_research5(name, base, out_dir, lock, md, args.synthetic, sel)
+    if sel.get("kind") == "research6":    # round-6 overnight / momentum
+        return final_test_research6(name, base, out_dir, lock, md, args.synthetic, sel)
     cfg = prepare_cfg(load_experiment(CONFIGS_DIR / f"{name}.yaml"), args.synthetic, args.smoke)
     if strategy_hash(cfg) != sel["hash"]:
         log.error("Config %s changed since validation (hash %s != %s). Refusing: re-run run_all.py.",

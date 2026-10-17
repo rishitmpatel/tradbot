@@ -257,3 +257,33 @@ Switch: `research5.confirmation_approved: true` in `base_config.yaml`. Approve i
 - The regions overlap the US exploration in time, and markets are correlated, so they are a weaker check than US 1927-1963.
 - The kill switch is checked at month ends, which misses drawdowns inside a month.
 - The French portfolios are gross of their internal trading. I subtract assumed drags of 5/40/80 bps a year (market/value/momentum), and double them in the robustness test.
+
+## P11 - Round-6 confirmation runs automatically, once (my design choice; you can block it)
+
+Switch: `research6.run_confirmation: true` in `base_config.yaml`. I set it to true when writing round 6. **Set it to
+false BEFORE your next run if you want to approve the confirmation separately**, as you did in rounds 4 and 5.
+
+**Why automatic is no less clean.** Finalists are picked by the pre-registered rule from US exploration numbers only,
+and frozen in `research6/confirmation_LOCK.json` *before* any confirmation return is computed. Nobody, including
+you, can see a confirmation number before the finalists are fixed. Waiting for approval would cost an extra
+overnight run and protect nothing more.
+
+**What it contains (none of it ever loaded by this project before):**
+- **Overnight finalists:** NIFTYBEES (required) and ^NSEI (informational), 2009 to the locked test start, with
+  Indian costs at ₹10 lakh.
+  - The finalist must: pass the open-price data check; beat buy & hold's excess Sharpe; be significant (p < 0.10);
+    beat a 6.5% liquid fund after costs and 20% STCG; and survive 80% of years.
+- **Momentum finalists:** Emerging Markets 1991-2024 at 10% vol.
+  - The finalist must: beat the EM market's excess Sharpe; beat T-bills; be significant (p < 0.10); and survive
+    80% of years.
+
+**Nothing about the pass bar, the survival rule or the walk-forward design changes.** The active bar
+(penalized Sharpe > 1) still applies and still decides PASS/FAIL. P9 is still shown, NOT active.
+
+## Note - ledger double count fixed (round 6)
+
+`legacy_trial_count` counted every ledger key except round-4 ones. Round-5 keys therefore entered the "rounds 1-3"
+number, while round 5 also counted them itself. This had not affected any reported number: the round-5 run that
+produced RESULTS.md wrote its keys *after* the count. On your next run it would have raised the total from 41 to 48
+by mistake. All research-stage keys (`r4:`, `r5:`, `r6:`) are now excluded from the legacy count, and a test checks
+this. Correct total after round 6: 27 + 7 + 7 + 5 = **46**.

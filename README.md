@@ -492,6 +492,33 @@ stand-ins.
 - **What capital matters:** an edge of 1% a year is ₹1,000 a year on ₹1 lakh. For a student, saving more and
   keeping costs and taxes low beats any strategy edge until the account is much larger.
 
+## 3f. Round 6: overnight returns, momentum crash guard, Emerging Markets, India tax harvesting
+
+Plan: `research/plan_round6.yaml`, committed before any round-6 code. Sources, with what is verified, assumed or
+from memory, plus every idea I rejected: `research/ROUND6_NOTES.md`. Code: `overnight_research.py`. Report:
+`RESEARCH6.md`, also appended to `RESULTS.md`.
+
+| | idea | exploration | confirmation (never used before) |
+|---|---|---|---|
+| H1 | hold SPY only from close to next open | SPY 1993-2024, 2 bps per round trip, slab tax | NIFTYBEES with all Indian charges, DP fee, STCG |
+| D1 | open to close (diagnostic) | SPY | - |
+| H2 | large-cap momentum, but hold the market after a 24-month market decline | US 1963-2024 | Emerging Markets 1991-2024 |
+| H3 | round 5's surviving momentum, unchanged | (round-5 numbers) | Emerging Markets 1991-2024 |
+| H4 | each Jan-Mar, sell up to ₹1.25 lakh of tax-free long-term gain and re-buy the next day | NIFTYBEES 2010-2024 | accounting rule, no confirmation needed |
+
+- **Open prices:** every data set is checked for fake opens (= previous close), opens outside the day's range, and
+  missing opens. An UNRELIABLE data set cannot confirm anything.
+- **Stress fills:** on days with a gap of -2% or worse, you sell at the day's low (24 Aug 2015-type opens).
+- **Break-even cost:** the report shows how many bps per round trip the overnight return can pay before it loses to
+  T-bills, and before it loses to buy & hold.
+- **Momentum crowding:** the report shows momentum vs the market in Aug 2007, the 2009 rebound, Nov 2016, Nov 2020
+  and early 2022.
+- **Trials:** 41 → 46. The confirmation runs automatically, once (PROPOSALS.md, P11). The locked test set is untouched.
+
+Extra downloads (once, then cached): Yahoo daily prices for SPY, NIFTYBEES.NS and ^NSEI into `data/ohlc/`, and two
+Ken French Emerging-Markets files into `data/french/`. If a download fails, the report says exactly which file failed
+and where to put it by hand. Round 6 adds well under 5 minutes to `python run_all.py`.
+
 ## 3b. How the RL part works (short version)
 
 Read `trading_env.py` and `agents.py`. Their comments are written as a tutorial.

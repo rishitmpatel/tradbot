@@ -481,7 +481,8 @@ def main() -> int:
     setup_logging(base, "research5_" + ("synthetic" if args.synthetic else "real"))
     res_root, _ = mode_dirs(base, args.synthetic, False)
     approved = bool((base_raw.get("research5") or {}).get("confirmation_approved", False))
-    res = run_round5(base, res_root, args.synthetic, legacy_trial_count(res_root, base_raw), approved)
+    res = run_round5(base, res_root, args.synthetic, legacy_trial_count(res_root, base_raw) + count_prefix(res_root, "r6:"),
+                     approved)
     md = ROOT / ("RESEARCH5.md" if not args.synthetic else "RESEARCH5_SYNTHETIC.md")
     write_report(res, md)
     log.info("wrote %s", md.name)

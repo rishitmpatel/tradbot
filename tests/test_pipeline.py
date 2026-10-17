@@ -38,7 +38,7 @@ def test_all_configs_load():
 
 
 def test_self_checks(prices, cfg):
-    assert len(run_all_checks(prices, cfg)) == 8
+    assert len(run_all_checks(prices, cfg)) == 9
 
 
 def test_lookahead_feature_is_caught(prices, cfg):
@@ -484,3 +484,115 @@ def test_tracker_converts_round5_finalists():
     assert a["mix"] == {"IWD": 0.5, "MTUM": 0.5} and a["trend_signal"] == "SPY" and a["cash"] == "SHV"
     assert p["hypotheses"]["R5_H6_turn_of_month"]["params"]["rebalance"] == "daily"
     assert "r5_bench:market" in p["hypotheses"]
+
+
+# ---------------------------------------------------------------- round 6
+def test_round6_stage_synthetic(tmp_path, monkeypatch):
+    import json
+    import overnight_research as o6
+    base = deep_merge(load_base(), {"data": {"source": "synthetic"}})
+    res = o6.run_round6(base, tmp_path, True, other_trials=41, run_confirmation=False)
+    assert res["n_total"] == 41 + len(o6.all_trials(res["plan"]))
+    assert res["confirmation"]["status"].startswith("blocked")
+    assert not (tmp_path / "research6" / "confirmation_LOCK.json").exists()
+    assert len(res["finalists"]) <= 3
+    for n in res["finalists"]:
+        s = res["summ"][n]
+        assert s["survival_rate"] >= 0.8 and s["costs_2x_excess_cagr"] > 0 and s["sharpe_minus_bench"] > 0
+    assert all(res["summ"][n]["verdict"] == "FAIL" for n in res["plan"]["hypotheses"] if n in res["summ"])
+    assert res["summ"]["bench:buy_and_hold_spy"]["last"] < "2024-10-16"          # never the test set
+    assert res["summ"]["bench:market_10vol"]["last"] < "2024-10-01"
+    assert not res["quality"]["^NSEI"]["reliable"]                                 # fake synthetic index opens caught
+    assert res["harvest"] and all(v["harvest"]["years"] > 10 for v in res["harvest"].values())
+    ledger = json.loads((tmp_path / "trial_ledger.json").read_text())
+    assert sum(1 for k in ledger["trials"] if k.startswith("r6:")) == 5
+    res2 = o6.run_round6(base, tmp_path, True, other_trials=41, run_confirmation=True)
+    if res2["finalists"]:
+        assert res2["confirmation"]["status"] == "ok"
+        assert json.loads((tmp_path / "research6" / "confirmation_LOCK.json").read_text())["finalists"] == res2["finalists"]
+    md = o6.write_report(res2, tmp_path / "R6.md")
+    assert "SYNTHETIC" in md and "Trials counted for the Sharpe penalty: 46" in md
+    plan = o6.load_plan()
+    plan["hypotheses"]["R6_H2_momentum_crash_guard"]["guard"]["lookback_months"] = 12
+    monkeypatch.setattr(o6, "load_plan", lambda path=None: plan)
+    res3 = o6.run_round6(base, tmp_path, True, other_trials=41, run_confirmation=False)
+    assert res3["status"]["R6_H2_momentum_crash_guard"] == "exploratory" and res3["n_total"] == res["n_total"] + 1
+
+
+def test_round6_selfcheck_catches_guard_lookahead(monkeypatch):
+    import numpy as np
+    import overnight_research as o6
+    import selfcheck
+
+    def peeking(spec, m):
+        L = int(spec["guard"]["lookback_months"])
+        mk = (1 + m["market"]).rolling(L, min_periods=L).apply(np.prod, raw=True)
+        rf = (1 + m["rf"]).rolling(L, min_periods=L).apply(np.prod, raw=True)
+        return (mk < rf).astype(float).where(mk.notna())          # no shift: uses this month's return
+    monkeypatch.setattr(o6, "guard_state", peeking)
+    with pytest.raises(AssertionError, match="LOOKAHEAD in momentum guard"):
+        selfcheck.check_round6()
+
+
+def test_round6_selfcheck_catches_overnight_lookahead(monkeypatch):
+    import overnight_research as o6
+    import selfcheck
+    real = o6.day_returns
+
+    def peeking(df, kind, cost=0.0, stress_gap=None):
+        if kind == "overnight":
+            return (df["open"].shift(-1) / df["close"] - 1 - cost).dropna()   # tomorrow's open, decided today
+        return real(df, kind, cost, stress_gap)
+    monkeypatch.setattr(o6, "day_returns", peeking)
+    with pytest.raises(AssertionError):
+        selfcheck.check_round6()
+
+
+def test_ohlc_download_failure_is_clear(monkeypatch):
+    import overnight_research as o6
+
+    def boom(*a, **k):
+        raise RuntimeError("HTTP 429 Too Many Requests")
+    monkeypatch.setattr(o6, "load_prices", boom)
+    with pytest.raises(o6.DataUnavailable) as e:
+        o6.load_ohlc(o6.load_plan(), ["NIFTYBEES.NS"], pd.Timestamp("2024-10-16"), synthetic=False)
+    msg = str(e.value)
+    assert "NIFTYBEES.NS" in msg and "rate limit" in msg and "NIFTYBEES.NS.csv" in msg and "429" in msg
+
+
+def test_legacy_count_ignores_research_stage_keys(tmp_path):
+    import json
+    from run_all import legacy_trial_count
+    ledger = {"trials": {"ppo_base@abc": {}, "r3_rule_vol_target@def": {}, "r4:H1@1": {}, "r5:R5_H2@2": {}, "r6:R6_H1@3": {}}}
+    (tmp_path / "trial_ledger.json").write_text(json.dumps(ledger))
+    empty = tmp_path / "noconfigs"
+    empty.mkdir()
+    assert legacy_trial_count(tmp_path, {"multiple_testing": {"extra_trials": 5}}, empty) == 2 + 5
+
+
+def test_india_overnight_costs_fall_with_capital():
+    import overnight_research as o6
+    c = o6.load_plan()["overnight"]["costs"]["india"]
+    small, mid, big = (o6.india_round_trip(c, k) for k in (1e5, 1e6, 1e7))
+    assert small > mid > big > 0.0004                                  # statutory charges + slippage never vanish
+    assert abs((small - mid) - 15.34 * (1 / 1e5 - 1 / 1e6)) < 1e-12   # the only fixed part is the DP charge
+
+
+def test_round6_overnight_confirmation_path(tmp_path, monkeypatch):
+    """Force a strong synthetic overnight drift so H1 becomes a finalist and the India confirmation runs."""
+    import overnight_research as o6
+    real = o6.synthetic_ohlc
+    monkeypatch.setattr(o6, "synthetic_ohlc", lambda seed, start, end, overnight_mu=0.0, intraday_mu=0.0, fake_open=False:
+                        real(seed, start, end, 0.0012, -0.0004, fake_open))
+    base = deep_merge(load_base(), {"data": {"source": "synthetic"}})
+    res = o6.run_round6(base, tmp_path, True, other_trials=41, run_confirmation=True)
+    assert "R6_H1_overnight_spy" in res["finalists"]
+    ov = res["confirmation"]["overnight"]
+    assert ov["NIFTYBEES.NS"]["loaded"] and not ov["NIFTYBEES.NS"]["why"]
+    assert "open prices UNRELIABLE" in ov["^NSEI"]["why"]                     # fake index opens can never confirm
+    assert ov["^NSEI"]["summ"]["mean_sharpe"] == 0.0                          # zero-variance series: no fake Sharpe
+    assert ov["NIFTYBEES.NS"]["summ"]["last"] < "2024-10-16"
+    caps = ov["NIFTYBEES.NS"]["after_tax"]
+    assert caps[100_000]["tax_main"] < caps[1_000_000]["tax_main"]            # the fixed DP charge hurts small accounts
+    assert res["confirmation"]["verdicts"]["R6_H1_overnight_spy"]["pass"]
+    assert "R6_H1_overnight_spy" in o6.write_report(res, tmp_path / "R6.md")

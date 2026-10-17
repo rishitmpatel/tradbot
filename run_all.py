@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 import time
 import traceback
@@ -46,6 +47,7 @@ from walkforward import (load_dev_assets, make_folds, run_baseline, run_experime
                          summarize)
 
 log = logging.getLogger("run_all")
+ROUND_KEY = re.compile(r"^r\d+:")      # ledger keys written by the research stages (round 4 onwards)
 
 SMOKE = {
     "agent": {"total_timesteps": 3000, "seeds": [0, 1],
@@ -106,7 +108,7 @@ def update_ledger(path: Path, cfgs: list[dict], rnd: int) -> int:
         key = f"{c['name']}@{strategy_hash(c)}"
         ledger["trials"].setdefault(key, {"round": rnd, "first_seen": time.strftime("%Y-%m-%d %H:%M")})
     save_json(path, ledger)
-    return sum(1 for k in ledger["trials"] if not k.startswith("r4:"))   # round-4 trials are counted by research.py
+    return sum(1 for k in ledger["trials"] if not ROUND_KEY.match(k))   # round 4+ trials are counted by their stages
 
 
 def legacy_trial_count(res_root: Path, base_raw: dict, configs_dir: Path = CONFIGS_DIR, n_current: int = 0) -> int:
@@ -114,7 +116,7 @@ def legacy_trial_count(res_root: Path, base_raw: dict, configs_dir: Path = CONFI
     ledger entries, never fewer than the archived configs, plus rule baselines looked at."""
     path = res_root / "trial_ledger.json"
     ledger = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"trials": {}}
-    n = sum(1 for k in ledger["trials"] if not k.startswith("r4:"))
+    n = sum(1 for k in ledger["trials"] if not ROUND_KEY.match(k))     # 'r4:', 'r5:', 'r6:' keys are counted by their stages
     n = max(n, archived_variant_count(Path(configs_dir)) + n_current)
     return n + int((base_raw.get("multiple_testing") or {}).get("extra_trials", 0))
 
@@ -128,7 +130,7 @@ def trial_table(res_root: Path, legacy: int, total: int) -> str:
         by_round.setdefault(v.get("round", "?"), []).append((k, v))
     L = ["## Trial ledger (every experiment ever counted)\n",
          f"Total used for the Sharpe penalty: **{total}** = {legacy} from rounds 1-3 (ledger entries, never "
-         "fewer than the archived configs, + 5 rule baselines) + the round-4 and round-5 entries below "
+         "fewer than the archived configs, + 5 rule baselines) + the round-4, round-5 and round-6 entries below "
          "(diagnostics and exploratory additions included).\n",
          "| round | trials in ledger | names |", "|---|---|---|"]
     for r in sorted(by_round, key=str):
@@ -409,19 +411,23 @@ def main() -> int:
     save_json(res_root / "all_summaries.json", {"experiments": summaries, "baselines": baseline_summaries,
                                                 "robustness": robustness, "load_errors": load_errors})
 
-    # 10. rounds 4 and 5: research stages ----------------------------------------------------------
+    # 10. rounds 4, 5 and 6: research stages -------------------------------------------------------
     if not args.skip_research:
         from factor_research import load_plan as load_plan5
         from factor_research import register_round5, run_round5
         from factor_research import write_report as write_report5
+        from overnight_research import load_plan as load_plan6
+        from overnight_research import register_round6, run_round6
+        from overnight_research import write_report as write_report6
         from research import run_research, write_report
-        # register round-5 trials FIRST so both stages penalise with the same true total
+        # register round-5 and round-6 trials FIRST so every stage penalises with the same true total
         _, n_r5 = register_round5(load_plan5(), res_root)
+        _, n_r6 = register_round6(load_plan6(), res_root)
         rres = None
         try:
             # smoke runs never touch a confirmation hold-out
             approved = bool((base_raw.get("research") or {}).get("confirmation_approved", False)) and not args.smoke
-            rres = run_research(base, res_root, args.synthetic, n_trials + n_r5, approved)
+            rres = run_research(base, res_root, args.synthetic, n_trials + n_r5 + n_r6, approved)
             rmd = write_report(rres, ROOT / ("RESEARCH.md" if not (args.synthetic or args.smoke)
                                              else f"RESEARCH_{mode.upper()}.md"), res_root / "plots" / "round4.png")
             with open(md_path, "a", encoding="utf-8") as f:
@@ -443,7 +449,7 @@ def main() -> int:
         r5 = None
         try:
             approved5 = bool((base_raw.get("research5") or {}).get("confirmation_approved", False)) and not args.smoke
-            r5 = run_round5(base, res_root, args.synthetic, n_trials, approved5)
+            r5 = run_round5(base, res_root, args.synthetic, n_trials + n_r6, approved5)
             md5 = write_report5(r5, ROOT / ("RESEARCH5.md" if not (args.synthetic or args.smoke)
                                             else f"RESEARCH5_{mode.upper()}.md"))
             with open(md_path, "a", encoding="utf-8") as f:
@@ -461,14 +467,37 @@ def main() -> int:
             log.error("round-5 research stage crashed: %s\n%s", e, traceback.format_exc())
             with open(md_path, "a", encoding="utf-8") as f:
                 f.write(f"\n## Round 5 research\n\n**CRASHED**: {type(e).__name__}: {e}\n")
-        total = n_trials + count_prefix(res_root, "r4:") + count_prefix(res_root, "r5:")
+        try:
+            # smoke runs never touch a confirmation hold-out
+            run6 = bool((base_raw.get("research6") or {}).get("run_confirmation", False)) and not args.smoke
+            other = n_trials + count_prefix(res_root, "r4:") + count_prefix(res_root, "r5:")
+            r6 = run_round6(base, res_root, args.synthetic, other, run6)
+            md6 = write_report6(r6, ROOT / ("RESEARCH6.md" if not (args.synthetic or args.smoke)
+                                            else f"RESEARCH6_{mode.upper()}.md"))
+            with open(md_path, "a", encoding="utf-8") as f:
+                f.write("\n" + md6)
+            r6_pass = [n for n in r6["plan"]["hypotheses"] if r6["summ"].get(n, {}).get("verdict") == "PASS"]
+            if r6_pass and not passing and selected is None:
+                best = max(r6_pass, key=lambda n: r6["summ"][n]["sharpe_minus_bench"])
+                save_json(res_root / "selection.json", {
+                    "selected": best, "kind": "research6", "hash": None, "passing": r6_pass,
+                    "n_trials": r6["n_total"], "generated": time.strftime("%Y-%m-%d %H:%M:%S"), "mode": mode,
+                    "note": "final_test.py evaluates ONLY the selected strategy, ONCE."})
+                selected = best
+            log.info("round 6 PASSING: %s | finalists: %s", r6_pass or "none", r6["finalists"])
+        except Exception as e:
+            log.error("round-6 research stage crashed: %s\n%s", e, traceback.format_exc())
+            with open(md_path, "a", encoding="utf-8") as f:
+                f.write(f"\n## Round 6 research\n\n**CRASHED**: {type(e).__name__}: {e}\n")
+        n4, n5, n6 = (count_prefix(res_root, p) for p in ("r4:", "r5:", "r6:"))
+        total = n_trials + n4 + n5 + n6
         with open(md_path, "a", encoding="utf-8") as f:
             f.write("\n" + trial_table(res_root, n_trials, total))
         txt = md_path.read_text(encoding="utf-8")
         md_path.write_text(txt.replace(
             f"- Variants tried (all rounds, used for Sharpe penalty): **{n_trials}**",
             f"- Variants tried (all rounds, used for Sharpe penalty): **{total}** (rounds 1-3: {n_trials}, "
-            f"round 4: {count_prefix(res_root, 'r4:')}, round 5: {count_prefix(res_root, 'r5:')})", 1), encoding="utf-8")
+            f"round 4: {n4}, round 5: {n5}, round 6: {n6})", 1), encoding="utf-8")
 
     # 11. forward paper tracker (real data only) ---------------------------------------------------
     if not (args.synthetic or args.smoke or args.skip_research):

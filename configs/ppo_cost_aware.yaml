@@ -1,0 +1,3 @@
+description: "PPO, extra turnover penalty (3x cost in reward) to discourage churning"
+agent: {algo: PPO}
+reward: {extra_cost_penalty: 2.0}

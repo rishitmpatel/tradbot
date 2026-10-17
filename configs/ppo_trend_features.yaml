@@ -1,0 +1,3 @@
+description: "PPO, trend-only features (momentum + MA ratios)"
+agent: {algo: PPO}
+features: {list: [mom_20, mom_60, mom_120, ma_ratio_50, ma_ratio_200, vol_60]}

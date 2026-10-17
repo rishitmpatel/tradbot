@@ -1,0 +1,3 @@
+description: "PPO, sees last 5 days of features"
+agent: {algo: PPO}
+env: {obs_window: 5}

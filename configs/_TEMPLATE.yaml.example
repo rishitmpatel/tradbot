@@ -1,0 +1,16 @@
+# Copy to configs/<new_name>.yaml (files starting with "_" are ignored).
+# Only list what differs from base_config.yaml.
+description: "what this variant tests"
+agent:
+  algo: PPO            # PPO | DQN
+  total_timesteps: 60000
+  seeds: [0, 1, 2]
+  ppo: {learning_rate: 0.0003, ent_coef: 0.01}
+env:
+  actions: [0, 1]
+  obs_window: 1
+reward:
+  drawdown_increase_penalty: 0.5
+  risk_penalty: 0.0
+features:
+  list: [logret_1, mom_5, mom_20, mom_60, vol_20, vol_60, rsi_14, ma_ratio_50]

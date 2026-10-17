@@ -1,0 +1,11 @@
+# Python 3.10 - 3.12 recommended (3.11 is safest on Windows)
+numpy>=1.26
+pandas>=2.1
+pyyaml>=6.0
+scipy>=1.11
+matplotlib>=3.8
+yfinance>=0.2.54
+gymnasium>=0.29,<2
+stable-baselines3>=2.3,<3
+torch>=2.2          # the default Windows wheel from PyPI is CPU-only, which is what we want
+pytest>=8

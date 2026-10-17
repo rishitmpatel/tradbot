@@ -1,0 +1,2 @@
+description: "DQN, long/flat, default features"
+agent: {algo: DQN}

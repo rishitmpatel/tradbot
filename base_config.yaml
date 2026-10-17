@@ -1,0 +1,143 @@
+# =====================================================================
+# quant-rl-bot BASE CONFIG
+# Every file in configs/ is deep-merged on top of this file.
+# Change behaviour here or in configs/*.yaml - never in the Python code.
+# PAPER TRADING / RESEARCH ONLY. No broker, no real money.
+# =====================================================================
+
+round: 1                  # bump when you start a new research round
+experiment_cap: 30        # max variants run per round (extra files are skipped)
+
+data:
+  source: yahoo           # yahoo | synthetic   (run_all.py --synthetic overrides)
+  tickers: [SPY, QQQ, GLD, TLT, RELIANCE.NS, TCS.NS]
+  start: "2010-01-01"     # 10+ years of daily data
+  end: null               # null = up to today (only used on first download)
+  cache_dir: data/raw     # CSV cache; delete or use `python data.py --refresh` to re-download
+  test_years: 2           # final N years are LOCKED; only final_test.py may look at them
+  synthetic_seed: 7       # used only when source = synthetic
+
+features:
+  # name_N  meaning (all computed from closes up to and including day t)
+  #   logret_1      1-day log return
+  #   mom_N         N-day log return (momentum)
+  #   vol_N         N-day realised volatility (annualised)
+  #   rsi_N         Wilder RSI over N days
+  #   ma_ratio_N    log(close / N-day simple moving average)
+  list: [logret_1, mom_5, mom_20, mom_60, vol_20, vol_60, rsi_14, ma_ratio_50]
+  normalize: rolling_z    # rolling_z | none   (rolling z-score uses past data only)
+  z_window: 252
+  clip: 5.0
+
+costs:
+  commission: 0.001       # 0.1% of traded notional
+  slippage: 0.0005        # extra 0.05% of traded notional
+  # total cost per unit of position change = commission + slippage
+
+capital:
+  initial: 100000         # paper money
+
+survival:
+  # "Agent dies": if portfolio equity falls more than this below its running
+  # peak, the bot liquidates and halts for the rest of the run (marked DEAD).
+  max_drawdown: 0.15
+
+walk_forward:
+  scheme: expanding       # expanding | rolling
+  warmup_years: 2         # skip first N years of prices (feature warm-up: windows + z-score)
+  min_train_years: 4      # first training window length
+  val_years: 1            # each out-of-sample validation window
+  step_years: 1
+  embargo_days: 5         # business-day gap between train end and validation start
+  min_val_days: 120       # drop a final partial validation window shorter than this
+  date_shift_days: 0      # robustness.py uses this to shift every fold boundary
+  max_folds: null         # null = all folds
+
+env:
+  # Discrete action i means "hold position actions[i]" (fraction of sleeve capital).
+  # [0, 1] = flat or long.  [-1, 0, 1] = short, flat or long.
+  actions: [0, 1]
+  obs_window: 1           # how many past days of features the agent sees
+  episode_length: 252     # training episode length (trading days)
+  include_position: true  # agent sees its current position
+  include_drawdown: true  # agent sees its current drawdown
+
+reward:
+  # Per step (pre-scale):
+  #   reward = log(1 + net_return)                       profit after costs
+  #          - extra_cost_penalty * cost                  optional extra turnover penalty
+  #          - drawdown_penalty * drawdown                penalise being under water
+  #          - drawdown_increase_penalty * max(0, d_dd)   penalise NEW drawdown
+  #          - risk_penalty * net_return^2                variance penalty
+  #          - death_penalty  (once, if drawdown > survival.max_drawdown)
+  #   reward *= scale
+  scale: 100.0
+  extra_cost_penalty: 0.0
+  drawdown_penalty: 0.0
+  drawdown_increase_penalty: 0.5
+  risk_penalty: 0.0
+  death_penalty: 0.2
+  terminate_on_death: true
+
+agent:
+  algo: PPO               # PPO | DQN
+  total_timesteps: 60000  # per walk-forward fold per seed
+  seeds: [0, 1, 2]
+  n_envs: 1
+  net_arch: [64, 64]
+  ppo:
+    learning_rate: 0.0003
+    n_steps: 2048
+    batch_size: 128
+    n_epochs: 10
+    gamma: 0.99
+    gae_lambda: 0.95
+    clip_range: 0.2
+    ent_coef: 0.01
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+  dqn:
+    learning_rate: 0.0001
+    buffer_size: 50000
+    learning_starts: 2000
+    batch_size: 64
+    gamma: 0.99
+    tau: 1.0
+    train_freq: 4
+    gradient_steps: 1
+    target_update_interval: 1000
+    exploration_fraction: 0.3
+    exploration_initial_eps: 1.0
+    exploration_final_eps: 0.05
+
+baselines:
+  buy_and_hold: {}
+  ma_crossover: {fast: 50, slow: 200, allow_short: false}
+  mean_reversion: {window: 20, entry_z: -1.0, exit_z: 0.0}
+  momentum: {lookback: 252, skip: 21, allow_short: false}
+
+robustness:
+  top_k: 3                        # how many top validation candidates to stress test
+  run_full_only_if_base_pass: true  # retraining tests only for candidates passing base criteria
+  cost_multiplier: 2.0
+  other_seeds: [101, 102, 103]
+  other_assets: [IWM, EFA, INFY.NS, HDFCBANK.NS]
+  shift_days: 182                 # shift all fold dates by ~6 months
+  shift_seeds: [0, 1]
+  required_tests: [costs_2x, other_seeds]   # must pass; the rest are reported only
+
+pass_criteria:
+  min_oos_return: 0.0            # stitched walk-forward OOS return after costs (mean over seeds) must be >
+  min_penalized_sharpe: 1.0      # validation Sharpe minus multiple-testing haircut must be >
+  min_survival_rate: 0.80        # share of walk-forward runs that never die
+  suspicious_sharpe: 2.5         # raw validation Sharpe above this = assume bug/leakage -> FAIL
+  robust_min_return: 0.0
+  robust_min_sharpe: 0.5
+  robust_min_survival_rate: 0.80
+
+runtime:
+  n_jobs: auto            # parallel worker processes; auto = CPU cores - 1, or a number
+  torch_threads: 1        # threads per worker
+  results_dir: results
+  models_dir: models
+  logs_dir: logs

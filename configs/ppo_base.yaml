@@ -1,0 +1,2 @@
+description: "PPO, long/flat, default features, small drawdown-increase penalty"
+agent: {algo: PPO}

@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+results/
+models/
+logs/
+RESULTS_*.md
+FINAL_TEST_*.md

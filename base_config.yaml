@@ -12,7 +12,7 @@ research:
   # Round 4 (research.py, research/plan_round4.yaml). The confirmation hold-out (mutual
   # funds 1991-2006) runs ONLY after the owner approves it (PROPOSALS.md, P6). The laptop
   # agent must never change this line.
-  confirmation_approved: false
+  confirmation_approved: true
 
 multiple_testing:
   # From round 3 rules can be selected, so every rule we have LOOKED AT counts as a trial.

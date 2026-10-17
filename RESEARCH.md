@@ -3,33 +3,50 @@
 ## Round 4 research: diversified allocation rules (pre-registered plan)
 
 - Plan `research/plan_round4.yaml` sha `5e50bb114cdd`; hypotheses registered: 7, exploratory (added/changed after registration): 0  
-- **Trials counted for the Sharpe penalty: 34** (27 from rounds 1-3 + 7 round-4)  
+- **Trials counted for the Sharpe penalty: 41** (34 from rounds 1-3 + 7 round-4)  
 - Exploration: ETF universe, one-year windows 2007-01-01 -> 2024-10-15, fresh 100,000 each window, 15 bps costs, 15% kill switch, leverage pays T-bill + 1%, idle cash earns 0  
 - Tickers not loaded: none
 
 | strategy | trial | Sharpe | CAGR | vol | max DD (stitched) | worst year | survived | turnover/yr | avg exposure | Sharpe - 60/40 | p (Sharpe <= 60/40) | CAGR at 10% vol | penalized Sharpe | DSR prob | Sharpe 2x costs | min neighbour Sharpe | shifted windows Sharpe | Sharpe if cash earned T-bill (P5) | finalist | verdict | P4 (NOT active) |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| H0_incumbent_vol_target | registered | 0.64 | +3.5% | 5.5% | 13.6% | -10.3% | 18/18 | 2.7 | 0.81 | +0.04 | 0.432 | +4.2% | 0.14 | 0.72 | 0.57 | 0.63 | 0.63 | 0.68 | no | FAIL | no |
-| H1_equal_weight | registered | 0.27 | +1.9% | 7.8% | 31.1% | -15.1% | 14/18 | 1.3 | 1.00 | -0.33 | 0.991 | +1.6% | -0.23 | 0.16 | 0.24 | n/a | 0.49 | 0.27 | no | FAIL | no |
-| H2_inverse_vol | registered | 0.68 | +3.9% | 5.9% | 22.2% | -12.9% | 17/18 | 2.0 | 1.00 | +0.08 | 0.334 | +4.8% | 0.18 | 0.77 | 0.63 | 0.62 | 0.73 | 0.68 | yes | FAIL | no |
-| H3_trend_following | registered | 0.67 | +2.7% | 4.0% | 9.4% | -3.9% | 18/18 | 2.5 | 0.64 | +0.07 | 0.387 | +3.0% | 0.17 | 0.76 | 0.58 | 0.61 | 0.69 | 0.83 | yes | FAIL | no |
-| H4_dual_momentum | registered | 0.45 | +4.2% | 10.2% | 17.1% | -12.8% | 16/18 | 5.3 | 0.93 | -0.15 | 0.754 | +4.1% | -0.05 | 0.41 | 0.37 | 0.34 | 0.41 | 0.47 | no | FAIL | no |
-| H5_ensemble | registered | 0.67 | +4.0% | 6.1% | 14.6% | -7.1% | 18/18 | 3.3 | 0.85 | +0.07 | 0.372 | +4.9% | 0.17 | 0.76 | 0.59 | n/a | 0.68 | 0.72 | yes | FAIL | no |
-| H6_ensemble_vol_target_10 | registered | 0.43 | +3.6% | 9.1% | 26.2% | -15.6% | 15/18 | 5.4 | 1.40 | -0.17 | 0.852 | +3.7% | -0.07 | 0.39 | 0.35 | 0.44 | 0.50 | 0.43 | no | FAIL | no |
+| H0_incumbent_vol_target | registered | 0.64 | +3.5% | 5.5% | 13.6% | -10.3% | 18/18 | 2.7 | 0.81 | +0.04 | 0.432 | +4.2% | 0.12 | 0.69 | 0.57 | 0.63 | 0.63 | 0.68 | no | FAIL | no |
+| H1_equal_weight | registered | 0.27 | +1.9% | 7.8% | 31.1% | -15.1% | 14/18 | 1.3 | 1.00 | -0.33 | 0.991 | +1.6% | -0.25 | 0.15 | 0.24 | n/a | 0.49 | 0.27 | no | FAIL | no |
+| H2_inverse_vol | registered | 0.68 | +3.9% | 5.9% | 22.2% | -12.9% | 17/18 | 2.0 | 1.00 | +0.08 | 0.334 | +4.8% | 0.16 | 0.75 | 0.63 | 0.62 | 0.73 | 0.68 | yes | FAIL | no |
+| H3_trend_following | registered | 0.67 | +2.7% | 4.0% | 9.4% | -3.9% | 18/18 | 2.5 | 0.64 | +0.07 | 0.387 | +3.0% | 0.15 | 0.74 | 0.58 | 0.61 | 0.69 | 0.83 | yes | FAIL | no |
+| H4_dual_momentum | registered | 0.45 | +4.2% | 10.2% | 17.1% | -12.8% | 16/18 | 5.3 | 0.93 | -0.15 | 0.754 | +4.1% | -0.07 | 0.39 | 0.37 | 0.34 | 0.41 | 0.47 | no | FAIL | no |
+| H5_ensemble | registered | 0.67 | +4.0% | 6.1% | 14.6% | -7.1% | 18/18 | 3.3 | 0.85 | +0.07 | 0.372 | +4.9% | 0.15 | 0.74 | 0.59 | n/a | 0.68 | 0.72 | yes | FAIL | no |
+| H6_ensemble_vol_target_10 | registered | 0.43 | +3.6% | 9.1% | 26.2% | -15.6% | 15/18 | 5.4 | 1.40 | -0.17 | 0.852 | +3.7% | -0.09 | 0.36 | 0.35 | 0.44 | 0.50 | 0.43 | no | FAIL | no |
 | bench:60_40 | benchmark | 0.60 | +5.0% | 8.7% | 32.7% | -16.3% | 14/18 | 1.2 | 1.00 | n/a | n/a | +5.3% | n/a | n/a | n/a | n/a | n/a | n/a | - | benchmark | - |
 | bench:buy_and_hold | benchmark | 0.45 | +5.2% | 13.2% | 45.6% | -16.6% | 11/18 | 1.0 | 1.00 | n/a | n/a | +4.1% | n/a | n/a | n/a | n/a | n/a | n/a | - | benchmark | - |
+
+**Round-5 measurement checks (informational, see PROPOSALS P7/P8):** performance WITHOUT the kill switch (what a holder would actually have had) and the excess-return Sharpe (returns above T-bills).
+
+| strategy | Sharpe w/o kill switch | CAGR w/o kill switch | excess Sharpe w/o kill switch |
+|---|---|---|---|
+| H0_incumbent_vol_target | 0.64 | +3.5% | 0.41 |
+| H1_equal_weight | 0.55 | +5.2% | 0.43 |
+| H2_inverse_vol | 0.74 | +4.4% | 0.53 |
+| H3_trend_following | 0.67 | +2.7% | 0.36 |
+| H4_dual_momentum | 0.48 | +4.7% | 0.36 |
+| H5_ensemble | 0.67 | +4.0% | 0.47 |
+| H6_ensemble_vol_target_10 | 0.55 | +5.0% | 0.42 |
+| bench:60_40 | 0.74 | +7.9% | 0.63 |
+| bench:buy_and_hold | 0.57 | +9.7% | 0.50 |
+
+**P5 recheck (diagnostic trial R5_D1, H3 trend):** Sharpe with idle cash at 0 = 0.67; with cash at T-bill, RAW Sharpe = 0.83 but EXCESS-return Sharpe = 0.51 vs 60/40 0.46, bootstrap p (not better) = 0.407. Raw Sharpe counts T-bill interest as if it were skill; the excess-return Sharpe removes it. Compare the two to see how much of P5's improvement was accounting.
+
 
 *CAGR at 10% vol*: what the strategy would have earned run at 10% annual volatility (borrowing at T-bill + 1% if it needs leverage, idle cash at 0). It compares profit at EQUAL risk. *p*: paired block bootstrap probability that the Sharpe advantage over 60/40 is not real (smaller = more convincing).
 
 ### Why each hypothesis passed or failed
 
-- **H0_incumbent_vol_target** (registered): FAIL - penalized Sharpe 0.14 (raw 0.64 - haircut 0.50) not > 1.0; not a finalist
-- **H1_equal_weight** (registered): FAIL - penalized Sharpe -0.23 (raw 0.27 - haircut 0.50) not > 1.0; survival 14/18 = 78% < 80%; Sharpe 0.27 not above buy-and-hold 0.45; Sharpe 0.27 not above 60/40 0.60; robustness costs_2x failed: Sharpe 0.24 <= 0.5, survival 78%; not a finalist
-- **H2_inverse_vol** (registered): FAIL - penalized Sharpe 0.18 (raw 0.68 - haircut 0.50) not > 1.0
-- **H3_trend_following** (registered): FAIL - penalized Sharpe 0.17 (raw 0.67 - haircut 0.50) not > 1.0
-- **H4_dual_momentum** (registered): FAIL - penalized Sharpe -0.05 (raw 0.45 - haircut 0.50) not > 1.0; Sharpe 0.45 not above 60/40 0.60; robustness costs_2x failed: Sharpe 0.37 <= 0.5; robustness param_neighborhood failed: {'top_frac': 0.5}: Sharpe 0.34 <= 0.5; not a finalist
-- **H5_ensemble** (registered): FAIL - penalized Sharpe 0.17 (raw 0.67 - haircut 0.50) not > 1.0
-- **H6_ensemble_vol_target_10** (registered): FAIL - penalized Sharpe -0.07 (raw 0.43 - haircut 0.50) not > 1.0; Sharpe 0.43 not above buy-and-hold 0.45; Sharpe 0.43 not above 60/40 0.60; robustness costs_2x failed: Sharpe 0.35 <= 0.5; robustness param_neighborhood failed: {'target': 0.08}: Sharpe 0.47 <= 0.5, {'target': 0.12}: Sharpe 0.44 <= 0.5; not a finalist
+- **H0_incumbent_vol_target** (registered): FAIL - penalized Sharpe 0.12 (raw 0.64 - haircut 0.52) not > 1.0; not a finalist
+- **H1_equal_weight** (registered): FAIL - penalized Sharpe -0.25 (raw 0.27 - haircut 0.52) not > 1.0; survival 14/18 = 78% < 80%; Sharpe 0.27 not above buy-and-hold 0.45; Sharpe 0.27 not above 60/40 0.60; robustness costs_2x failed: Sharpe 0.24 <= 0.5, survival 78%; not a finalist
+- **H2_inverse_vol** (registered): FAIL - penalized Sharpe 0.16 (raw 0.68 - haircut 0.52) not > 1.0
+- **H3_trend_following** (registered): FAIL - penalized Sharpe 0.15 (raw 0.67 - haircut 0.52) not > 1.0
+- **H4_dual_momentum** (registered): FAIL - penalized Sharpe -0.07 (raw 0.45 - haircut 0.52) not > 1.0; Sharpe 0.45 not above 60/40 0.60; robustness costs_2x failed: Sharpe 0.37 <= 0.5; robustness param_neighborhood failed: {'top_frac': 0.5}: Sharpe 0.34 <= 0.5; not a finalist
+- **H5_ensemble** (registered): FAIL - penalized Sharpe 0.15 (raw 0.67 - haircut 0.52) not > 1.0
+- **H6_ensemble_vol_target_10** (registered): FAIL - penalized Sharpe -0.09 (raw 0.43 - haircut 0.52) not > 1.0; Sharpe 0.43 not above buy-and-hold 0.45; Sharpe 0.43 not above 60/40 0.60; robustness costs_2x failed: Sharpe 0.35 <= 0.5; robustness param_neighborhood failed: {'target': 0.08}: Sharpe 0.47 <= 0.5, {'target': 0.12}: Sharpe 0.44 <= 0.5; not a finalist
 
 ### Correlation of daily returns (exploration)
 

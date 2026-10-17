@@ -1,0 +1,6 @@
+description: "PPO, positions 0/0.5/1, reward = return minus buy-and-hold return, drawdown penalised only beyond 8%"
+# WHY: the target 'match buy-and-hold, with much less drawdown'. Sitting in cash while the
+# market rises is now punished, while deep drawdowns (beyond 8%) are punished too.
+agent: {algo: PPO}
+env: {actions: [0, 0.5, 1], rebalance_band: 0.1}
+reward: {relative_to: buy_and_hold, drawdown_soft_limit: 0.08, drawdown_increase_penalty: 1.0, death_penalty: 0.2}

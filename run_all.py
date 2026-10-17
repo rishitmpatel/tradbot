@@ -33,11 +33,14 @@ from backtest import cost_rate
 from config_utils import (CONFIGS_DIR, ROOT, deep_merge, list_experiment_files, load_base, load_experiment,
                           resolve_n_jobs, strategy_hash)
 from data import get_split, load_prices, quality_report
-from evaluation import base_checks, final_verdict, penalize
+from evaluation import base_checks, final_verdict, low_risk_match, penalize
+from features import build_assets
+from overlay import has_overlay
 from reporting import plot_experiment, plot_overview, save_json, write_results_md
 from robustness import run_robustness
-from selfcheck import run_all_checks
-from walkforward import load_dev_assets, make_folds, run_baseline, run_experiment, stitched_returns, summarize
+from selfcheck import check_env_matches_engine, run_all_checks
+from walkforward import (load_dev_assets, make_folds, run_baseline, run_experiment, run_own_base, stitched_returns,
+                         summarize)
 
 log = logging.getLogger("run_all")
 
@@ -103,6 +106,12 @@ def update_ledger(path: Path, cfgs: list[dict], rnd: int) -> int:
     return len(ledger["trials"])
 
 
+def archived_variant_count(configs_dir: Path) -> int:
+    """Variants from earlier rounds kept in configs/round*/ - they count as trials even on a
+    machine whose ledger was lost, so the multiple-testing penalty cannot silently shrink."""
+    return sum(1 for f in Path(configs_dir).glob("round*/*.yaml") if not f.name.startswith("_"))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--synthetic", action="store_true", help="use generated fake prices (code testing only)")
@@ -166,6 +175,7 @@ def main() -> int:
                                 "reasons": [f"config error: {e}"]})
             log.error("config %s invalid: %s", f.name, e)
     n_trials = update_ledger(res_root / "trial_ledger.json", cfgs, int(base_raw.get("round", 1)))
+    n_trials = max(n_trials, archived_variant_count(Path(args.configs_dir)) + len(cfgs))
     log.info("%d experiments this run; %d variants tried in total (all rounds)", len(cfgs), n_trials)
 
     assets, split = load_dev_assets(base)
@@ -191,6 +201,8 @@ def main() -> int:
         log.info("--- experiment %d/%d: %s (%s) %s", i, len(cfgs), name, cfg["agent"]["algo"], cfg.get("description", ""))
         exp_dir = res_root / "experiments" / name
         try:
+            # self-check with THIS experiment's settings: env P&L must equal engine P&L
+            check_env_matches_engine(next(iter(build_assets(dev_prices, cfg["features"]).values())), cfg)
             folds = make_folds(cfg, assets, split)
             runs = run_experiment(cfg, exp_dir / "runs", model_root / name, folds, n_jobs)
             all_runs[name] = runs
@@ -205,14 +217,28 @@ def main() -> int:
         s["algo"] = cfg["agent"]["algo"].upper()
         s["hash"] = strategy_hash(cfg)
         s["description"] = cfg.get("description", "")
+        if has_overlay(cfg):  # the same rule without the agent: did RL add anything?
+            try:
+                ob = summarize(f"{name}:rule_only", run_own_base(cfg, make_folds(cfg, assets, split),
+                                                                 exp_dir / "own_base", assets))
+                s["own_base"] = {k: ob.get(k) for k in ("mean_sharpe", "mean_return", "mean_stitched_mdd",
+                                                        "survival_rate", "survived", "n_ok")}
+            except Exception as e:
+                log.error("own-base rule for %s failed: %s", name, e)
         summaries.append(s)
         save_json(exp_dir / "summary.json", s)
 
     # 6. penalty + base checks ------------------------------------------------------
     cross = [s["mean_sharpe"] for s in summaries if "mean_sharpe" in s]
+    bench = next((b for b in baseline_summaries if b["name"] == "baseline:buy_and_hold"), None)
     for s in summaries + baseline_summaries:
         penalize(s, n_trials, cross)
         s["base_pass"], s["reasons"] = base_checks(s, pc)
+        if bench and "mean_sharpe" in s and "mean_sharpe" in bench:
+            s["sharpe_vs_bh"] = s["mean_sharpe"] - bench["mean_sharpe"]
+            s["dd_ratio_vs_bh"] = (s["mean_stitched_mdd"] / bench["mean_stitched_mdd"]
+                                   if bench["mean_stitched_mdd"] > 0 else None)
+            s["low_risk_match"] = low_risk_match(s, bench, pc)
 
     # 7. robustness ---------------------------------------------------------------------
     rcfg = base["robustness"]
@@ -240,7 +266,8 @@ def main() -> int:
     for s in summaries:
         if s.get("mean_sharpe", 0) > pc["suspicious_sharpe"]:
             suspicious.append(f"{s['name']} (Sharpe {s['mean_sharpe']:.2f})")
-        v = final_verdict(s, robustness.get(s["name"], {}), rcfg["required_tests"], pc)
+        v = final_verdict(s, robustness.get(s["name"], {}), rcfg["required_tests"], pc,
+                          bench=bench, own_base=s.get("own_base"))
         s["verdict"] = "PASS" if v["pass"] else "FAIL"
         s["reasons"] = v["reasons"]
         if v["pass"]:

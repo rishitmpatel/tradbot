@@ -25,9 +25,13 @@ import torch
 from trading_env import Segment, TradingEnv
 
 
-def make_segment(asset, start: pd.Timestamp, end: pd.Timestamp, obs_window: int) -> Segment | None:
+def make_segment(asset, start: pd.Timestamp, end: pd.Timestamp, cfg: dict) -> Segment | None:
     """Arrays for asset days in [start, end] plus (obs_window-1) days of earlier
-    feature history so the agent can see a full window on day one."""
+    feature history so the agent can see a full window on day one. Also attaches
+    the rule's base position and the reward benchmark (overlay.py)."""
+    from overlay import base_position, reference_position
+
+    obs_window = int(cfg["env"].get("obs_window", 1))
     idx = asset.features.index
     in_win = np.where((idx >= start) & (idx <= end))[0]
     if len(in_win) < 3:
@@ -35,7 +39,12 @@ def make_segment(asset, start: pd.Timestamp, end: pd.Timestamp, obs_window: int)
     a, b = in_win[0], in_win[-1]
     h = min(obs_window - 1, a)          # history rows available before the window
     sl = slice(a - h, b + 1)
-    return Segment(asset.features.values[sl], asset.fwd_ret.values[sl], idx[sl], first=h, ticker=asset.ticker)
+    dates = idx[sl]
+    base = base_position(asset.close, cfg).reindex(dates).fillna(0.0).values
+    ref = reference_position(asset.close, cfg)
+    ref = None if ref is None else ref.reindex(dates).fillna(0.0).values
+    return Segment(asset.features.values[sl], asset.fwd_ret.values[sl], dates, first=h, ticker=asset.ticker,
+                   base=base, ref=ref)
 
 
 def build_env(segments: list[Segment], cfg: dict, rate: float, train: bool) -> TradingEnv:
@@ -81,7 +90,7 @@ def agent_positions(model, cfg: dict, asset, start, end, rate: float) -> tuple[p
     """Positions the trained agent takes on decision days of [start, end] (greedy)."""
     from trading_env import rollout_positions
 
-    seg = make_segment(asset, start, end, int(cfg["env"].get("obs_window", 1)))
+    seg = make_segment(asset, start, end, cfg)
     if seg is None:
         return None
     env = build_env([seg], cfg, rate, train=False)

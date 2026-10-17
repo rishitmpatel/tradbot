@@ -1,0 +1,7 @@
+description: "PPO overlay on vol-targeted buy-and-hold; reward = beat the rule; drawdown penalised only beyond 8%"
+# WHY: buy-and-hold won round 1. Start from it (sized to ~12% vol) and let the agent only
+# learn when to cut exposure. Reward is measured against the rule, so cash is no longer free:
+# going to cash in a rising market now scores negative.
+agent: {algo: PPO}
+env: {base_signal: buy_and_hold, vol_target: 0.12, actions: [0, 0.5, 1], rebalance_band: 0.1}
+reward: {relative_to: base, drawdown_soft_limit: 0.08, drawdown_increase_penalty: 1.0, death_penalty: 0.2}

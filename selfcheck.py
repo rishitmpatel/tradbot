@@ -8,7 +8,6 @@ import pandas as pd
 
 from backtest import Sleeve, cost_rate, portfolio_backtest, sleeve_returns, window_sleeve
 from features import build_assets, check_causality
-from trading_env import Segment, TradingEnv
 
 
 def check_features_causal(prices: dict, cfg: dict) -> None:
@@ -39,24 +38,50 @@ def check_engine_timing(asset, cfg: dict) -> None:
 
 
 def check_env_matches_engine(asset, cfg: dict, seed: int = 0) -> None:
-    """Random actions through the env must give the same P&L as the backtest engine."""
+    """Random actions through the env must give the same P&L as the backtest engine,
+    with this config's overlay, rebalance band, decision interval and reward settings."""
+    from agents import build_env, make_segment
+
     rate = cost_rate(cfg)
     idx = asset.features.index
-    sel = slice(len(idx) // 2, len(idx) // 2 + 200)
-    seg = Segment(asset.features.values[sel], asset.fwd_ret.values[sel], idx[sel], first=0)
-    env_cfg = dict(cfg["env"], obs_window=1)
-    env = TradingEnv([seg], env_cfg, dict(cfg["reward"], terminate_on_death=False), rate, 0.99, train=False)
+    seg = make_segment(asset, idx[len(idx) // 2], idx[len(idx) // 2 + 200], cfg)
+    c = dict(cfg, reward=dict(cfg["reward"], terminate_on_death=False))
+    env = build_env([seg], c, rate, train=False)
     env.reset(options={"segment": 0})
     rng = np.random.default_rng(seed)
     nets, poss = [], []
     while True:
-        _, _, term, trunc, info = env.step(int(rng.integers(env.action_space.n)))
-        nets.append(info["net"])
-        poss.append(info["pos"])
+        _, reward, term, trunc, info = env.step(int(rng.integers(env.action_space.n)))
+        assert np.isfinite(reward), "non-finite reward"
+        nets.extend(info["nets"])
+        poss.extend(info["positions"])
         if term or trunc:
             break
-    net_engine, _ = sleeve_returns(np.array(poss), seg.fwd_ret[: len(poss)], rate)
+    start = max(seg.first, env.window - 1)
+    assert len(poss) == seg.last_decision - start + 1, "env skipped or repeated days"
+    assert max(abs(p) for p in poss) <= 1.0 + 1e-12, "position above 100% (leverage)"
+    net_engine, _ = sleeve_returns(np.array(poss), seg.fwd_ret[start: start + len(poss)], rate)
     assert np.allclose(nets, net_engine, atol=1e-12), "env P&L differs from backtest engine"
+
+
+def check_overlay_causal(close: pd.Series, cfg: dict, n_checks: int = 5) -> None:
+    """The rule's base position and benchmark on day t must not change when future prices are removed."""
+    from overlay import base_position, reference_position
+
+    full_b, full_r = base_position(close, cfg), reference_position(close, cfg)
+    rng = np.random.default_rng(1)
+    for i in rng.choice(np.arange(300, len(close) - 1), size=n_checks, replace=False):
+        tr = close.iloc[: i + 1]
+        assert np.isclose(full_b.iloc[i], base_position(tr, cfg).iloc[-1], equal_nan=True), \
+            f"LOOKAHEAD in overlay base position at {close.index[i].date()}"
+        if full_r is not None:
+            assert np.isclose(full_r.iloc[i], reference_position(tr, cfg).iloc[-1], equal_nan=True), \
+                f"LOOKAHEAD in reward benchmark at {close.index[i].date()}"
+
+
+OVERLAY_TEST = {"env": {"base_signal": "momentum", "vol_target": 0.12, "actions": [0, 0.5, 1],
+                        "rebalance_band": 0.1, "decision_interval": 5, "obs_window": 3},
+                "reward": {"relative_to": "base", "type": "differential_sharpe"}}
 
 
 def check_survival_rule() -> None:
@@ -81,6 +106,11 @@ def run_all_checks(prices: dict, cfg: dict) -> list[str]:
     done.append("engine timing (buy&hold accounting, oracle detection)")
     check_env_matches_engine(a, cfg)
     done.append("env P&L == engine P&L")
+    from config_utils import deep_merge
+    ocfg = deep_merge(cfg, OVERLAY_TEST)
+    check_overlay_causal(a.close, ocfg)
+    check_env_matches_engine(a, ocfg)
+    done.append("overlay: causal base/benchmark, env == engine with band + weekly decisions")
     check_survival_rule()
     done.append("survival kill switch")
     return done

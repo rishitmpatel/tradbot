@@ -94,8 +94,44 @@ def robust_check(summary: dict, pc: dict) -> tuple[bool, list[str]]:
     return not reasons, reasons
 
 
-def final_verdict(summary: dict, robustness: dict, required: list[str], pc: dict) -> dict:
+def relative_checks(summary: dict, bench: dict | None, own_base: dict | None, pc: dict) -> tuple[bool, list[str]]:
+    """Round 2: compare with what you could get WITHOUT RL on the same windows.
+    These are added ON TOP of the absolute checks (never instead of them):
+    loosening the bar after seeing round-1 results would be moving the goalposts."""
+    reasons = []
+    if "mean_sharpe" not in summary:
+        return False, reasons
+    if pc.get("must_beat_benchmark_sharpe", True):
+        if not bench or "mean_sharpe" not in bench:
+            reasons.append("benchmark missing")
+        elif summary["mean_sharpe"] <= bench["mean_sharpe"]:
+            reasons.append(f"Sharpe {summary['mean_sharpe']:.2f} not above buy-and-hold {bench['mean_sharpe']:.2f} "
+                           "(same windows)")
+    if pc.get("must_beat_own_base_rule", True) and own_base and "mean_sharpe" in own_base:
+        if summary["mean_sharpe"] <= own_base["mean_sharpe"]:
+            reasons.append(f"Sharpe {summary['mean_sharpe']:.2f} not above its own rule without RL "
+                           f"{own_base['mean_sharpe']:.2f} - the RL part added nothing")
+    return not reasons, reasons
+
+
+def low_risk_match(summary: dict, bench: dict | None, pc: dict) -> bool | None:
+    """Informational: 'about the same Sharpe as buy-and-hold with much smaller drawdown'.
+    Does NOT make a strategy pass."""
+    if not bench or "mean_sharpe" not in summary or "mean_sharpe" not in bench:
+        return None
+    tol = float(pc.get("low_risk_sharpe_tolerance", 0.1))
+    ratio = float(pc.get("low_risk_dd_ratio", 0.6))
+    return bool(summary["mean_sharpe"] >= bench["mean_sharpe"] - tol
+                and summary["mean_stitched_mdd"] <= ratio * bench["mean_stitched_mdd"]
+                and summary["survival_rate"] >= bench["survival_rate"])
+
+
+def final_verdict(summary: dict, robustness: dict, required: list[str], pc: dict,
+                  bench: dict | None = None, own_base: dict | None = None) -> dict:
     ok, reasons = base_checks(summary, pc)
+    rel_ok, rel_reasons = relative_checks(summary, bench, own_base, pc)
+    ok = ok and rel_ok
+    reasons += rel_reasons
     rob = {}
     for test in required:
         r = robustness.get(test)

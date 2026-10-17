@@ -1,0 +1,6 @@
+description: "Round-1 ppo_pure_return reward, but positions sized by volatility targeting"
+# WHY: ppo_pure_return made the most money but died in 6/27 runs. Is that only a sizing
+# problem? Same reward, same freedom, but exposure shrinks automatically when markets get wild.
+agent: {algo: PPO}
+env: {vol_target: 0.12, actions: [0, 0.5, 1], rebalance_band: 0.1}
+reward: {drawdown_increase_penalty: 0.0, death_penalty: 0.0, terminate_on_death: false}

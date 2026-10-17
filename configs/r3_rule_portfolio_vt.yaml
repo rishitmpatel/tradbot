@@ -1,0 +1,20 @@
+kind: rule
+description: "Inverse-volatility weights + portfolio-level (correlation-aware) volatility target of 8%, long only, no leverage"
+# WHY: vol_target sizes each asset by its OWN volatility and ignores that assets can crash
+# together (2020, and stocks + bonds both falling in 2022). This rule estimates the risk of
+# the WHOLE portfolio with the rolling covariance matrix and cuts everything when
+# correlations rise. It also moves capital between assets (the sleeve engine cannot),
+# paying costs for every rebalance. 8% target / 60-day window chosen a priori as common
+# risk-parity defaults, before any run - not tuned.
+# Rejected sibling: a trend-filtered version. Round 2 showed the trend filter HURT
+# (trend_vol_target Sharpe 1.04 vs vol_target 1.46), so it would only add a trial.
+rule:
+  name: portfolio_vol_target
+  params: {target: 0.08, window: 60, max_gross: 1.0, band: 0.02}
+  neighborhood:
+    - {target: 0.06}
+    - {target: 0.10}
+    - {window: 40}
+    - {window: 90}
+    - {band: 0.01}
+    - {band: 0.04}

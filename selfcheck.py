@@ -96,6 +96,52 @@ def check_survival_rule() -> None:
     assert bt.equity.iloc[-1] < bt.equity.cummax().max() * 0.85 + 1e-6
 
 
+def check_weights_engine(asset, cfg: dict) -> None:
+    """Portfolio-weights engine: (1) 100% in one asset == buy & hold minus one entry cost,
+    identical to the sleeve engine; (2) two assets, constant 50/50 rebalanced daily, matches
+    a hand calculation including rebalancing costs; (3) kill switch freezes equity."""
+    from backtest import weights_backtest
+
+    rate = cost_rate(cfg)
+    idx = asset.features.index
+    start, end = idx[len(idx) // 3], idx[len(idx) // 3 + 250]
+    days = idx[(idx >= start) & (idx <= end)]
+    dec, real = days[:-1], days[1:]
+    fwd = asset.fwd_ret.loc[dec].values[:, None]
+    bt_w = weights_backtest(dec, real, np.ones((len(dec), 1)), fwd, np.ones((len(dec), 1), bool), rate, 1e5, None)
+    sl = window_sleeve(asset, start, end, lambda d: np.ones(len(d)))
+    bt_s = portfolio_backtest([sl], rate, 1e5, None)
+    assert np.isclose(bt_w.equity.iloc[-1], bt_s.equity.iloc[-1], rtol=1e-10), "weights engine != sleeve engine"
+
+    r = np.array([[0.01, -0.02], [0.03, 0.01], [-0.01, 0.0]])
+    d = pd.bdate_range("2021-01-04", periods=4)
+    bt2 = weights_backtest(d[:-1], d[1:], np.full((3, 2), 0.5), r, np.ones((3, 2), bool), 0.001, 1.0, None)
+    eq, held = 1.0, np.zeros(2)
+    for i in range(3):
+        eq *= (1 - np.abs(0.5 - held).sum() * 0.001) * (1 + 0.5 * r[i].sum())
+        held = 0.5 * (1 + r[i]) / (1 + 0.5 * r[i].sum())
+    assert np.isclose(bt2.equity.iloc[-1], eq, rtol=1e-12), "weights engine rebalancing cost mismatch"
+
+    crash = np.r_[np.full(10, 0.01), np.full(10, -0.03), np.full(9, 0.02)][:, None]
+    d3 = pd.bdate_range("2021-01-04", periods=30)
+    bt3 = weights_backtest(d3[:-1], d3[1:], np.ones((29, 1)), crash, np.ones((29, 1), bool), 0.001, 1e5, 0.15)
+    assert bt3.dead and bt3.equity[bt3.equity.index > bt3.death_date].nunique() == 1, "weights kill switch broken"
+
+
+def check_portfolio_rule_causal(assets: dict, n_checks: int = 4) -> None:
+    """Weights on day t must not change when prices after t are removed."""
+    from rules import close_panel, portfolio_vol_target_weights
+
+    panel = close_panel(assets)
+    full = portfolio_vol_target_weights(panel)
+    rng = np.random.default_rng(2)
+    for i in rng.choice(np.arange(200, len(panel) - 1), size=n_checks, replace=False):
+        trunc = portfolio_vol_target_weights(panel.iloc[: i + 1])
+        assert np.allclose(full.iloc[i].values, trunc.iloc[-1].values, atol=1e-9), \
+            f"LOOKAHEAD in portfolio rule weights at {panel.index[i].date()}"
+    assert (full.values >= -1e-12).all() and (full.sum(axis=1) <= 1.0 + 1e-9).all(), "portfolio rule leverage/short"
+
+
 def run_all_checks(prices: dict, cfg: dict) -> list[str]:
     done = []
     check_features_causal(prices, cfg)
@@ -113,4 +159,7 @@ def run_all_checks(prices: dict, cfg: dict) -> list[str]:
     done.append("overlay: causal base/benchmark, env == engine with band + weekly decisions")
     check_survival_rule()
     done.append("survival kill switch")
+    check_weights_engine(a, cfg)
+    check_portfolio_rule_causal(assets)
+    done.append("portfolio engine accounting + portfolio rule causal, no leverage")
     return done

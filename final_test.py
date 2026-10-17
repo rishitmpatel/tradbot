@@ -36,6 +36,7 @@ from config_utils import CONFIGS_DIR, ROOT, load_base, load_experiment, strategy
 from data import get_split, load_prices, test_view  # noqa: E402
 from features import build_assets  # noqa: E402
 from reporting import save_json  # noqa: E402
+from rules import evaluate_window, is_rule  # noqa: E402
 from run_all import mode_dirs, mode_name, prepare_cfg, setup_logging  # noqa: E402
 
 log = logging.getLogger("final_test")
@@ -92,7 +93,13 @@ def main() -> int:
     log.info("FINAL TEST of %s: train %s -> %s, test %s -> %s", name, data_start.date(), train_end.date(), ts.date(), te.date())
 
     rows, curves = [], {}
-    for seed in cfg["agent"]["seeds"]:
+    if is_rule(cfg):   # a fixed rule: nothing to train, just trade the locked period once
+        bt = evaluate_window(cfg, assets, ts, te)
+        rows.append({"name": f"{name} (rule)", **bt.metrics})
+        curves[f"{name} (rule)"] = bt.equity
+        log.info("rule: return %+.1f%% sharpe %.2f mdd %.1f%% %s", 100 * bt.metrics["total_return"],
+                 bt.metrics["sharpe"], 100 * bt.metrics["max_drawdown"], "DEAD" if bt.dead else "alive")
+    for seed in ([] if is_rule(cfg) else cfg["agent"]["seeds"]):
         segs = [s for s in (make_segment(a, data_start, train_end, cfg) for a in assets.values()) if s is not None]
         model = train_agent(cfg, segs, rate, int(seed), model_root / name / "final" / f"seed{seed}")
         sleeves = []
@@ -137,9 +144,17 @@ def main() -> int:
     if args.synthetic:
         L.append("> **SYNTHETIC DATA - NOT REAL RESULTS.**\n")
     L.append(f"Strategy: **{name}** (hash {sel['hash']}), selected from {sel['n_trials']} variants tried.  ")
-    L.append(f"Test period: {ts.date()} -> {te.date()}. Trained on {data_start.date()} -> {train_end.date()}.  ")
+    trained = "Fixed rule, no training." if is_rule(cfg) else f"Trained on {data_start.date()} -> {train_end.date()}."
+    L.append(f"Test period: {ts.date()} -> {te.date()}. {trained}  ")
     L.append(f"Mean return {rl['total_return'].mean():+.1%}, mean Sharpe {rl['sharpe'].mean():.2f}, "
-             f"survived {alive}/{len(rl)} seeds.\n")
+             f"survived {alive}/{len(rl)} run(s).\n")
+    fc = cfg.get("final_test_criteria") or {}
+    ok = (rl["total_return"].mean() > fc.get("min_return", 0.0) and rl["sharpe"].mean() > fc.get("min_sharpe", 0.0)
+          and (alive == len(rl) or not fc.get("must_survive", True)))
+    L.append(f"**Pre-registered final-test check** (written in base_config.yaml before the test was run: return > "
+             f"{fc.get('min_return', 0.0):+.0%}, Sharpe > {fc.get('min_sharpe', 0.0)}, survives): "
+             f"**{'MET' if ok else 'NOT MET'}**. Two years is short: a Sharpe estimate from 2 years has a standard "
+             "error of about 0.7, so this can catch a broken strategy but cannot prove a good one.\n")
     L.append("Do NOT change the strategy based on this result. The test set is now used up; a new round needs new "
              "unseen data (e.g. wait and paper-trade forward).\n")
     cols = ["total_return", "cagr", "sharpe", "sortino", "max_drawdown", "annual_turnover", "dead", "death_date"]

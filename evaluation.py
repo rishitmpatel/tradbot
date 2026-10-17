@@ -58,8 +58,14 @@ def penalize(summary: dict, n_trials: int, cross_sharpes: list[float]) -> dict:
     return summary
 
 
-def base_checks(summary: dict, pc: dict) -> tuple[bool, list[str]]:
-    """Validation-stage criteria. Returns (passed, list of failure reasons)."""
+def base_checks(summary: dict, pc: dict, sharpe_test: str | None = None) -> tuple[bool, list[str]]:
+    """Validation-stage criteria. Returns (passed, list of failure reasons).
+
+    sharpe_test (pass_criteria.sharpe_test):
+      "penalized" (ACTIVE default): Sharpe minus the best-of-N luck haircut must exceed min_penalized_sharpe.
+      "dsr" (round-3 PROPOSAL, needs your approval): raw Sharpe > min_raw_sharpe AND deflated-Sharpe
+            probability > min_dsr_prob, i.e. "good enough, and very unlikely to be best-of-N luck"."""
+    sharpe_test = sharpe_test or pc.get("sharpe_test", "penalized")
     reasons = []
     if not summary.get("complete"):
         reasons.append(f"incomplete ({summary.get('n_ok', 0)}/{summary.get('n_runs', 0)} runs ok)")
@@ -69,10 +75,19 @@ def base_checks(summary: dict, pc: dict) -> tuple[bool, list[str]]:
         reasons.append(f"SUSPICIOUS Sharpe {summary['mean_sharpe']:.2f} > {pc['suspicious_sharpe']} - assume bug/leakage")
     if summary["mean_return"] <= pc["min_oos_return"]:
         reasons.append(f"OOS return {summary['mean_return']:+.1%} not > {pc['min_oos_return']:+.1%}")
-    if summary.get("penalized_sharpe", -9) <= pc["min_penalized_sharpe"]:
-        reasons.append(f"penalized Sharpe {summary.get('penalized_sharpe', float('nan')):.2f} "
-                       f"(raw {summary['mean_sharpe']:.2f} - haircut {summary.get('sharpe_haircut', 0):.2f}) "
-                       f"not > {pc['min_penalized_sharpe']}")
+    if sharpe_test == "penalized":
+        if summary.get("penalized_sharpe", -9) <= pc["min_penalized_sharpe"]:
+            reasons.append(f"penalized Sharpe {summary.get('penalized_sharpe', float('nan')):.2f} "
+                           f"(raw {summary['mean_sharpe']:.2f} - haircut {summary.get('sharpe_haircut', 0):.2f}) "
+                           f"not > {pc['min_penalized_sharpe']}")
+    elif sharpe_test == "dsr":
+        if summary["mean_sharpe"] <= pc.get("min_raw_sharpe", 1.0):
+            reasons.append(f"Sharpe {summary['mean_sharpe']:.2f} not > {pc.get('min_raw_sharpe', 1.0)}")
+        if summary.get("dsr_prob", 0.0) <= pc.get("min_dsr_prob", 0.95):
+            reasons.append(f"deflated-Sharpe probability {summary.get('dsr_prob', 0):.2f} "
+                           f"not > {pc.get('min_dsr_prob', 0.95)}")
+    else:
+        raise ValueError(f"pass_criteria.sharpe_test must be penalized|dsr, got {sharpe_test}")
     if summary["survival_rate"] < pc["min_survival_rate"]:
         reasons.append(f"survival {summary['survived']}/{summary['n_ok']} = {summary['survival_rate']:.0%} "
                        f"< {pc['min_survival_rate']:.0%}")
@@ -127,8 +142,8 @@ def low_risk_match(summary: dict, bench: dict | None, pc: dict) -> bool | None:
 
 
 def final_verdict(summary: dict, robustness: dict, required: list[str], pc: dict,
-                  bench: dict | None = None, own_base: dict | None = None) -> dict:
-    ok, reasons = base_checks(summary, pc)
+                  bench: dict | None = None, own_base: dict | None = None, sharpe_test: str | None = None) -> dict:
+    ok, reasons = base_checks(summary, pc, sharpe_test)
     rel_ok, rel_reasons = relative_checks(summary, bench, own_base, pc)
     ok = ok and rel_ok
     reasons += rel_reasons
@@ -139,7 +154,10 @@ def final_verdict(summary: dict, robustness: dict, required: list[str], pc: dict
             ok = False
             reasons.append(f"robustness '{test}' not run" + (f" ({r.get('status')})" if r else ""))
             continue
-        p, why = robust_check(r["summary"], pc)
+        if "pass" in r:   # the test's own verdict (param_neighborhood: ALL neighbours must pass)
+            p, why = bool(r["pass"]), list(r.get("reasons") or [])
+        else:
+            p, why = robust_check(r["summary"], pc)
         rob[test] = p
         if not p:
             ok = False

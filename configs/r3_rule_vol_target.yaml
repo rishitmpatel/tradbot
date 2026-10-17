@@ -1,0 +1,18 @@
+kind: rule
+description: "Per-asset volatility targeting (round 2's vol_target baseline), promoted to a candidate unchanged"
+# WHY: best result of 28 strategies looked at (Sharpe 1.46, DSR prob 0.99, survival 9/9),
+# with NO learning involved. Parameters are exactly round 2's (12% vol, 20-day window,
+# 0.1 band) - not re-tuned. It has never been through the formal robustness tests, and
+# it was never eligible for the final test. Re-running it on the same validation windows
+# gives the same numbers (it is deterministic); what is new is the robustness evidence.
+rule:
+  name: vol_target
+  params: {target: 0.12, window: 20, band: 0.1}
+  # Robustness only (rules have no seed): EVERY neighbour must also pass. Never used to pick.
+  neighborhood:
+    - {target: 0.09}
+    - {target: 0.15}
+    - {window: 10}
+    - {window: 40}
+    - {band: 0.05}
+    - {band: 0.2}

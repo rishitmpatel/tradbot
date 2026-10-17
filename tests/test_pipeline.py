@@ -30,13 +30,13 @@ def prices(cfg):
 
 def test_all_configs_load():
     files = list_experiment_files()
-    assert len(files) >= 4
+    assert len(files) >= 2
     names = [load_experiment(f)["name"] for f in files]
     assert len(set(names)) == len(names)
 
 
 def test_self_checks(prices, cfg):
-    assert len(run_all_checks(prices, cfg)) == 5
+    assert len(run_all_checks(prices, cfg)) == 6
 
 
 def test_lookahead_feature_is_caught(prices, cfg):
@@ -229,3 +229,89 @@ def test_relative_checks():
     assert low_risk_match(s, bench, pc) is True
     ok, _ = relative_checks({**s, "mean_sharpe": 1.2}, bench, {"mean_sharpe": 1.1}, pc)
     assert ok
+
+
+# ---------------------------------------------------------------- round 3
+def _rule_cfg(cfg, name, params, neighborhood=None):
+    return deep_merge(cfg, {"name": f"t_{name}", "kind": "rule",
+                            "rule": {"name": name, "params": params, "neighborhood": neighborhood or []}})
+
+
+def test_rule_matches_baseline(cfg, tmp_path):
+    """A promoted rule must give exactly the baseline's numbers (same rule, two code paths)."""
+    from rules import run_rule_strategy
+    from walkforward import run_baseline, summarize
+    assets, split = load_dev_assets(cfg)
+    folds = make_folds(cfg, assets, split)
+    c = _rule_cfg(cfg, "vol_target", cfg["baselines"]["vol_target"])
+    a = summarize("rule", run_rule_strategy(c, assets, folds, tmp_path / "r"))
+    b = summarize("base", run_baseline(cfg, "vol_target", folds, tmp_path / "b", assets))
+    assert np.isclose(a["mean_sharpe"], b["mean_sharpe"]) and np.isclose(a["mean_return"], b["mean_return"])
+
+
+def test_portfolio_rule_no_leverage_and_costs(cfg, tmp_path):
+    from rules import close_panel, portfolio_vol_target_weights, run_rule_strategy
+    from walkforward import summarize
+    assets, split = load_dev_assets(cfg)
+    W = portfolio_vol_target_weights(close_panel(assets), target=0.5)   # high target -> gross cap binds
+    assert W.values.min() >= 0 and W.sum(axis=1).max() <= 1 + 1e-9 and W.sum(axis=1).max() > 0.9
+    folds = make_folds(cfg, assets, split)[:3]
+    c = _rule_cfg(cfg, "portfolio_vol_target", {"target": 0.08, "window": 60})
+    cheap = summarize("x", run_rule_strategy(c, assets, folds, tmp_path / "a"))
+    dear = summarize("y", run_rule_strategy(c, assets, folds, tmp_path / "b", cost_mult=5.0))
+    assert dear["mean_return"] < cheap["mean_return"] and cheap["mean_turnover"] > 0
+
+
+def test_closed_market_cannot_trade():
+    from backtest import weights_backtest
+    d = pd.bdate_range("2021-01-04", periods=4)
+    tradable = np.array([[True, False], [True, False], [True, True]])
+    bt = weights_backtest(d[:-1], d[1:], np.full((3, 2), 0.5), np.zeros((3, 2)), tradable, 0.01, 1.0, None)
+    held = bt.positions.values
+    assert held[0, 1] == 0 and held[1, 1] == 0 and held[2, 1] == 0.5   # asset 2 only bought once its market opens
+
+
+def test_rule_robustness_and_verdict(cfg, tmp_path):
+    from evaluation import final_verdict
+    from robustness import run_rule_robustness
+    c = _rule_cfg(cfg, "vol_target", {"target": 0.12, "window": 20, "band": 0.1},
+                  neighborhood=[{"target": 0.09}, {"window": 40}])
+    rob = run_rule_robustness(c, tmp_path)
+    assert set(rob) == {"costs_2x", "other_assets", "shifted_dates", "param_neighborhood"}
+    assert all(r["status"] == "ok" for r in rob.values()), rob
+    assert len(rob["param_neighborhood"]["neighbors"]) == 2
+    # a neighbourhood failure must fail the verdict even if the worst-Sharpe summary looks fine
+    rob["param_neighborhood"]["pass"] = False
+    rob["param_neighborhood"]["reasons"] = ["{'window': 40}: survival 50%"]
+    s = {"mean_sharpe": 1.5, "mean_return": 0.5, "penalized_sharpe": 1.2, "survival_rate": 1.0, "survived": 9,
+         "n_ok": 9, "n_runs": 9, "complete": True, "dsr_prob": 0.99, "mean_stitched_mdd": 0.1}
+    v = final_verdict(s, rob, ["costs_2x", "param_neighborhood"], c["pass_criteria"])
+    assert not v["pass"] and any("param_neighborhood" in r for r in v["reasons"])
+
+
+def test_proposed_bar_is_inactive_by_default(cfg):
+    from evaluation import base_checks
+    pc = cfg["pass_criteria"]
+    assert pc["sharpe_test"] == "penalized"
+    s = {"mean_sharpe": 1.46, "mean_return": 1.18, "penalized_sharpe": 0.78, "dsr_prob": 0.99,
+         "survival_rate": 1.0, "survived": 9, "n_ok": 9, "n_runs": 9, "complete": True}
+    assert not base_checks(s, pc)[0]                 # active bar: fails
+    assert base_checks(s, pc, sharpe_test="dsr")[0]   # proposed bar: would pass (that is why it needs approval)
+
+
+def test_invalid_rule_config_rejected(cfg):
+    from config_utils import validate
+    with pytest.raises(ValueError):
+        validate(_rule_cfg(cfg, "no_such_rule", {}))
+    with pytest.raises(ValueError):
+        validate(_rule_cfg(cfg, "vol_target", {"target": 0.1}, neighborhood=[{"windw": 5}]))
+
+
+def test_long_history_respects_test_lock(cfg):
+    from long_history import early_period_runs, run_long_history
+    strategies, folds, _, split = run_long_history(load_base(), synthetic=True)
+    assert pd.Timestamp(folds[-1].val_end) < split.test_start
+    assert pd.Timestamp(folds[0].val_start) < pd.Timestamp("2008-01-01")       # covers 2008
+    runs = strategies["r3_rule_vol_target"]
+    early = early_period_runs(runs)
+    assert early and all(r["fold"]["val_start"] < "2016-01-01" for r in early)

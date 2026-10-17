@@ -81,13 +81,14 @@ def _row(s: dict, verdict: str) -> str:
             f"| {_num(s.get('penalized_sharpe'))} | {_num(s.get('dsr_prob'))} | {_num(s.get('mean_sortino'))} "
             f"| {_plain(s.get('mean_stitched_mdd'), 1)} | {_num(s.get('mean_turnover'), 1)} "
             f"| {_signed(s.get('sharpe_vs_bh'))} | {_num(s.get('dd_ratio_vs_bh'))} "
-            f"| {_num((s.get('own_base') or {}).get('mean_sharpe'))} | {_flag(s.get('low_risk_match'))} | {verdict} |")
+            f"| {_num((s.get('own_base') or {}).get('mean_sharpe'))} | {_flag(s.get('low_risk_match'))} | {verdict} "
+            f"| {_flag(s.get('proposed_bar'))} |")
 
 
 HEADER = ("| experiment | algo | status | runs ok | survived | OOS return (mean seeds) | worst seed | Sharpe | "
           "penalized Sharpe | DSR prob | Sortino | max DD (stitched) | turnover/yr | Sharpe - B&H | DD / B&H DD | "
-          "rule-only Sharpe | low-risk match | verdict |\n"
-          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+          "rule-only Sharpe | low-risk match | verdict | would pass PROPOSED bar P1+P2 (NOT active) |\n"
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
 
 
 def write_results_md(path: Path, ctx: dict) -> None:
@@ -108,12 +109,17 @@ def write_results_md(path: Path, ctx: dict) -> None:
              f"- Survival rule: run DEAD if equity falls > {ctx['max_dd']:.0%} below its peak (start {ctx['initial']:,.0f})\n")
 
     L.append("## Verdict\n")
+    L.append(f"Active Sharpe test: **{ctx['pc'].get('sharpe_test', 'penalized')}** "
+             "(see PROPOSALS.md for the proposed alternative; changing it requires the owner's approval).\n")
     if ctx["passing"]:
         L.append("Strategies passing ALL checks (validation + robustness): **" + ", ".join(ctx["passing"]) + "**  ")
         L.append(f"Selected for the one-time final test: **{ctx['selected']}** (run `python final_test.py`).\n")
     else:
-        L.append("**NO STRATEGY PASSED.** No strategy met all of: positive OOS return after costs, penalized Sharpe "
-                 f"> {ctx['pc']['min_penalized_sharpe']}, survival >= {ctx['pc']['min_survival_rate']:.0%}, "
+        pc = ctx["pc"]
+        sharpe_rule = (f"penalized Sharpe > {pc['min_penalized_sharpe']}" if pc.get("sharpe_test", "penalized") == "penalized"
+                       else f"Sharpe > {pc.get('min_raw_sharpe')} and deflated-Sharpe prob > {pc.get('min_dsr_prob')}")
+        L.append(f"**NO STRATEGY PASSED.** No strategy met all of: positive OOS return after costs, {sharpe_rule}, "
+                 f"survival >= {pc['min_survival_rate']:.0%}, "
                  "Sharpe above buy-and-hold on the same windows, beating its own rule without RL (overlays), and "
                  "robustness under 2x costs and other seeds. This is a normal, honest outcome.\n")
     lr = [s["name"] for s in ctx["experiments"] if s.get("low_risk_match")]
@@ -125,7 +131,7 @@ def write_results_md(path: Path, ctx: dict) -> None:
         L.append("**WARNING - suspiciously good results (assume bug/leakage until proven otherwise):** "
                  + ", ".join(ctx["suspicious"]) + "\n")
 
-    L.append("## RL experiments (every variant, including failures)\n")
+    L.append("## Experiments: RL agents and rules (every variant, including failures)\n")
     L.append(HEADER)
     for s in ctx["experiments"]:
         L.append(_row(s, s.get("verdict", "")))
@@ -136,7 +142,9 @@ def write_results_md(path: Path, ctx: dict) -> None:
              "*Sharpe - B&H* = Sharpe minus buy-and-hold's on the same windows. *DD / B&H DD* = stitched max "
              "drawdown relative to buy-and-hold's (below 1 = shallower). *Rule-only Sharpe* = the overlay's rule "
              "with the agent removed (multiplier fixed at 1); the agent must beat it. *Low-risk match* = "
-             "Sharpe within 0.1 of B&H with <= 60% of its drawdown (informational).\n")
+             "Sharpe within 0.1 of B&H with <= 60% of its drawdown (informational). *Would pass PROPOSED bar P1+P2* = "
+             "same checks but with 'Sharpe > 1 and deflated-Sharpe prob > 0.95' instead of 'penalized Sharpe > 1' (P1), "
+             "and for rules also passing 2007-2015 (P2); NOT active, see PROPOSALS.md. *algo RULE* = a fixed rule, no learning.\n")
 
     L.append("## Baselines (same windows, same costs, same survival rule; fixed textbook parameters)\n")
     L.append(HEADER)
@@ -157,7 +165,7 @@ def write_results_md(path: Path, ctx: dict) -> None:
                          f"{_num(s.get('mean_sharpe'))} | {r.get('pass', '-')} |")
         L.append("")
 
-    L.append("## Why each RL experiment failed or passed\n")
+    L.append("## Why each experiment failed or passed\n")
     for s in ctx["experiments"]:
         reasons = s.get("reasons") or []
         L.append(f"- **{s['name']}**: " + ("PASS" if s.get("verdict") == "PASS" else "; ".join(reasons) or "-"))
@@ -172,9 +180,11 @@ def write_results_md(path: Path, ctx: dict) -> None:
         L.append(f"| {f.k} | {f.train_start} -> {f.train_end} | {f.val_start} -> {f.val_end} |")
 
     L.append("\n## Data quality\n")
-    L.append("| ticker | rows | start | end | years | jumps > 25% (check splits) |\n|---|---|---|---|---|---|")
+    L.append("| ticker | rows | start | end | years | jumps > 25% (check splits) | lag-1 autocorr of daily returns (dev data) |"
+             "\n|---|---|---|---|---|---|---|")
     for q in ctx["quality"]:
-        L.append(f"| {q['ticker']} | {q['rows']} | {q['start']} | {q['end']} | {q['years']} | {', '.join(q['big_jumps']) or '-'} |")
+        L.append(f"| {q['ticker']} | {q['rows']} | {q['start']} | {q['end']} | {q['years']} | "
+                 f"{', '.join(q['big_jumps']) or '-'} | {_signed(q.get('ac1_dev'), 3)} |")
 
     L.append("\n## Equity curves (out-of-sample, stitched)\n")
     L.append(f"![overview]({ctx['overview_plot']})\n")

@@ -5,8 +5,14 @@
 # PAPER TRADING / RESEARCH ONLY. No broker, no real money.
 # =====================================================================
 
-round: 2                  # bump when you start a new research round
+round: 3                  # bump when you start a new research round
 experiment_cap: 30        # max variants run per round (extra files are skipped)
+
+multiple_testing:
+  # From round 3 rules can be selected, so every rule we have LOOKED AT counts as a trial.
+  # The 6 rule baselines shown in rounds 1-2 count; vol_target is already counted through
+  # its config r3_rule_vol_target, so 5 extra.
+  extra_trials: 5
 
 data:
   source: yahoo           # yahoo | synthetic   (run_all.py --synthetic overrides)
@@ -146,9 +152,23 @@ robustness:
   other_assets: [IWM, EFA, INFY.NS, HDFCBANK.NS]
   shift_days: 182                 # shift all fold dates by ~6 months
   shift_seeds: [0, 1]
-  required_tests: [costs_2x, other_seeds]   # must pass; the rest are reported only
+  required_tests: [costs_2x, other_seeds]   # must pass (RL agents); the rest are reported only
+  # Rules have no random seed, so "other seeds" cannot apply. Their stand-in is the
+  # parameter neighbourhood: EVERY nearby parameter set must also pass (see PROPOSALS.md, P3).
+  rule_required_tests: [costs_2x, param_neighborhood]
 
 pass_criteria:
+  # sharpe_test: which Sharpe check is ACTIVE.
+  #   penalized = Sharpe minus best-of-N haircut > min_penalized_sharpe   (current bar, ACTIVE)
+  #   dsr       = Sharpe > min_raw_sharpe AND deflated-Sharpe prob > min_dsr_prob
+  #               (round-3 PROPOSAL P1 - only switch after reading PROPOSALS.md and approving it
+  #                BEFORE looking at round-3 results)
+  sharpe_test: penalized
+  min_raw_sharpe: 1.0
+  min_dsr_prob: 0.95
+  # PROPOSAL P2 (PROPOSALS.md): rules must ALSO pass on 2007-2015 (return > 0, Sharpe > 0.5,
+  # survival >= 80%), the history no rule was ever evaluated on. Reported either way.
+  require_long_history: false
   min_oos_return: 0.0            # stitched walk-forward OOS return after costs (mean over seeds) must be >
   min_penalized_sharpe: 1.0      # validation Sharpe minus multiple-testing haircut must be >
   min_survival_rate: 0.80        # share of walk-forward runs that never die
@@ -161,6 +181,13 @@ pass_criteria:
   must_beat_own_base_rule: true      # an overlay must beat its own rule run without the agent
   low_risk_sharpe_tolerance: 0.1     # info flag "low-risk match": Sharpe >= B&H - 0.1 ...
   low_risk_dd_ratio: 0.6             # ... and max drawdown <= 60% of B&H's (does NOT make it pass)
+
+final_test_criteria:
+  # Pre-registered BEFORE anything looks at the locked test set (round 3). final_test.py
+  # reports MET / NOT MET against these. Do not edit after running final_test.py.
+  min_return: 0.0
+  min_sharpe: 0.5
+  must_survive: true
 
 runtime:
   n_jobs: auto            # parallel worker processes; auto = CPU cores - 1, or a number

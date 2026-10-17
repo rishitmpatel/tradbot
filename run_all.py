@@ -27,17 +27,19 @@ import time
 import traceback
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from backtest import cost_rate
 from config_utils import (CONFIGS_DIR, ROOT, deep_merge, list_experiment_files, load_base, load_experiment,
                           resolve_n_jobs, strategy_hash)
 from data import get_split, load_prices, quality_report
-from evaluation import base_checks, final_verdict, low_risk_match, penalize
+from evaluation import base_checks, final_verdict, low_risk_match, penalize, robust_check
 from features import build_assets
 from overlay import has_overlay
 from reporting import plot_experiment, plot_overview, save_json, write_results_md
-from robustness import run_robustness
+from robustness import run_robustness, run_rule_robustness
+from rules import is_rule, run_rule_strategy
 from selfcheck import check_env_matches_engine, run_all_checks
 from walkforward import (load_dev_assets, make_folds, run_baseline, run_experiment, run_own_base, stitched_returns,
                          summarize)
@@ -156,6 +158,10 @@ def main() -> int:
     except AssertionError as e:
         log.error("SELF-CHECK FAILED: %s -- aborting, results would be untrustworthy", e)
         return 2
+    for q in quality:   # how predictable is tomorrow from today? (development data only)
+        lr = np.log(dev_prices[q["ticker"]]["close"]).diff().dropna()
+        q["ac1_dev"] = float(lr.autocorr(1))
+        log.info("lag-1 autocorrelation of daily returns %s (dev data): %+.3f", q["ticker"], q["ac1_dev"])
 
     # 3. experiments to run ---------------------------------------------------
     files = list_experiment_files(args.configs_dir)
@@ -176,6 +182,7 @@ def main() -> int:
             log.error("config %s invalid: %s", f.name, e)
     n_trials = update_ledger(res_root / "trial_ledger.json", cfgs, int(base_raw.get("round", 1)))
     n_trials = max(n_trials, archived_variant_count(Path(args.configs_dir)) + len(cfgs))
+    n_trials += int((base_raw.get("multiple_testing") or {}).get("extra_trials", 0))
     log.info("%d experiments this run; %d variants tried in total (all rounds)", len(cfgs), n_trials)
 
     assets, split = load_dev_assets(base)
@@ -194,17 +201,21 @@ def main() -> int:
         log.info("baseline %-15s return=%+.1f%% sharpe=%.2f survival=%d/%d", name, 100 * s.get("mean_return", 0),
                  s.get("mean_sharpe", 0), s["survived"], s["n_ok"])
 
-    # 5. RL experiments -----------------------------------------------------------
+    # 5. experiments (RL agents and, from round 3, rules) ------------------------------
     summaries, all_runs = [], {}
     for i, cfg in enumerate(cfgs, 1):
         name = cfg["name"]
-        log.info("--- experiment %d/%d: %s (%s) %s", i, len(cfgs), name, cfg["agent"]["algo"], cfg.get("description", ""))
+        kind = "RULE" if is_rule(cfg) else cfg["agent"]["algo"].upper()
+        log.info("--- experiment %d/%d: %s (%s) %s", i, len(cfgs), name, kind, cfg.get("description", ""))
         exp_dir = res_root / "experiments" / name
         try:
-            # self-check with THIS experiment's settings: env P&L must equal engine P&L
-            check_env_matches_engine(next(iter(build_assets(dev_prices, cfg["features"]).values())), cfg)
             folds = make_folds(cfg, assets, split)
-            runs = run_experiment(cfg, exp_dir / "runs", model_root / name, folds, n_jobs)
+            if is_rule(cfg):   # deterministic, no training: one run per validation window
+                runs = run_rule_strategy(cfg, assets, folds, exp_dir / "runs")
+            else:
+                # self-check with THIS experiment's settings: env P&L must equal engine P&L
+                check_env_matches_engine(next(iter(build_assets(dev_prices, cfg["features"]).values())), cfg)
+                runs = run_experiment(cfg, exp_dir / "runs", model_root / name, folds, n_jobs)
             all_runs[name] = runs
             s = summarize(name, runs)
             s["status"] = "ok" if s["complete"] else "incomplete"
@@ -214,10 +225,11 @@ def main() -> int:
         except Exception as e:
             log.error("experiment %s crashed: %s\n%s", name, e, traceback.format_exc())
             s = {"name": name, "status": f"error: {type(e).__name__}: {e}", "n_runs": 0, "n_ok": 0, "survived": 0}
-        s["algo"] = cfg["agent"]["algo"].upper()
+        s["algo"] = kind
+        s["kind"] = "rule" if is_rule(cfg) else "rl"
         s["hash"] = strategy_hash(cfg)
         s["description"] = cfg.get("description", "")
-        if has_overlay(cfg):  # the same rule without the agent: did RL add anything?
+        if not is_rule(cfg) and has_overlay(cfg):  # the same rule without the agent: did RL add anything?
             try:
                 ob = summarize(f"{name}:rule_only", run_own_base(cfg, make_folds(cfg, assets, split),
                                                                  exp_dir / "own_base", assets))
@@ -242,10 +254,35 @@ def main() -> int:
 
     # 7. robustness ---------------------------------------------------------------------
     rcfg = base["robustness"]
-    ranked = sorted([s for s in summaries if "penalized_sharpe" in s], key=lambda s: -s["penalized_sharpe"])
+    ranked = sorted([s for s in summaries if "penalized_sharpe" in s and s["kind"] == "rl"],
+                    key=lambda s: -s["penalized_sharpe"])
     robustness = {}
     if not args.skip_robustness:
         by_name = {c["name"]: c for c in cfgs}
+        for s in [s for s in summaries if s.get("kind") == "rule" and "mean_sharpe" in s]:
+            # rules are cheap (no training): every rule gets every robustness test
+            log.info("--- robustness for rule %s", s["name"])
+            try:
+                robustness[s["name"]] = run_rule_robustness(by_name[s["name"]], res_root / "experiments" / s["name"])
+            except Exception as e:
+                log.error("robustness for %s crashed: %s\n%s", s["name"], e, traceback.format_exc())
+                robustness[s["name"]] = {"error": {"status": f"error: {e}", "summary": None}}
+        rule_names = [s["name"] for s in summaries if s.get("kind") == "rule" and s["name"] in robustness]
+        if rule_names:   # P2 check: the never-used 2007-2015 history (informational unless approved)
+            try:
+                from long_history import early_period_runs, run_long_history
+                lh, _, _, _ = run_long_history(base_raw, args.synthetic, smoke=args.smoke)
+                for n in rule_names:
+                    ls = summarize(f"{n}:2007-2015", early_period_runs(lh[n]))
+                    ok, why = robust_check(ls, pc)
+                    robustness[n]["long_history_2007_2015"] = {"status": "ok", "summary": ls, "pass": ok,
+                                                               "reasons": why}
+                    log.info("long history 2007-2015 %s: Sharpe %.2f survival %d/%d pass=%s", n,
+                             ls.get("mean_sharpe", float("nan")), ls["survived"], ls["n_ok"], ok)
+            except Exception as e:
+                log.error("long-history check failed: %s", e)
+                for n in rule_names:
+                    robustness[n]["long_history_2007_2015"] = {"status": f"error: {e}", "summary": None, "pass": False}
         for s in ranked[: int(rcfg["top_k"])]:
             cfg = by_name[s["name"]]
             tests = ["costs_2x", "other_assets"]
@@ -266,10 +303,18 @@ def main() -> int:
     for s in summaries:
         if s.get("mean_sharpe", 0) > pc["suspicious_sharpe"]:
             suspicious.append(f"{s['name']} (Sharpe {s['mean_sharpe']:.2f})")
-        v = final_verdict(s, robustness.get(s["name"], {}), rcfg["required_tests"], pc,
+        required = list(rcfg["rule_required_tests"]) if s.get("kind") == "rule" else list(rcfg["required_tests"])
+        if s.get("kind") == "rule" and pc.get("require_long_history", False):
+            required.append("long_history_2007_2015")
+        v = final_verdict(s, robustness.get(s["name"], {}), required, pc,
                           bench=bench, own_base=s.get("own_base"))
         s["verdict"] = "PASS" if v["pass"] else "FAIL"
         s["reasons"] = v["reasons"]
+        if pc.get("sharpe_test", "penalized") == "penalized":   # what the PROPOSED bar would say (not active)
+            prop_req = required + (["long_history_2007_2015"] if s.get("kind") == "rule"
+                                   and "long_history_2007_2015" not in required else [])
+            s["proposed_bar"] = final_verdict(s, robustness.get(s["name"], {}), prop_req, pc, bench=bench,
+                                              own_base=s.get("own_base"), sharpe_test="dsr")["pass"]
         if v["pass"]:
             passing.append(s)
     for s in baseline_summaries:

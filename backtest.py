@@ -116,6 +116,58 @@ def portfolio_backtest(sleeves: list[Sleeve], rate: float, initial: float, max_d
     return res
 
 
+def weights_backtest(dates: pd.DatetimeIndex, real_dates: pd.DatetimeIndex, target: np.ndarray, fwd: np.ndarray,
+                     tradable: np.ndarray, rate: float, initial: float, max_dd: float | None,
+                     tickers: list[str] | None = None) -> BacktestResult:
+    """Portfolio-level engine (round 3) for rules that set WEIGHTS of total equity.
+
+    target[i, j]  weight of asset j decided at close of dates[i] (fraction of TOTAL equity)
+    fwd[i, j]     return of asset j from dates[i] to real_dates[i] (0 if its market was shut)
+    tradable[i,j] False if asset j's exchange was closed on dates[i]: its weight then just drifts
+    Unlike the sleeve engine, capital moves between assets, and every rebalance pays costs.
+    Same timing rule as everywhere: decide at close i, earn close i -> next close.
+    """
+    target = np.asarray(target, dtype=float)
+    fwd = np.asarray(fwd, dtype=float)
+    if not np.all(np.isfinite(fwd)):
+        raise ValueError("non-finite forward return inside the evaluation window")
+    n, k = target.shape
+    held = np.zeros(k)                       # weights actually held (drift with prices)
+    eq = np.empty(n + 1)
+    eq[0] = initial
+    held_hist = np.zeros((n, k))
+    turnover = np.zeros(n)
+    dead, death_i = False, None
+    peak = initial
+    for i in range(n):
+        if dead:
+            eq[i + 1] = eq[i]
+            continue
+        want = np.where(tradable[i], target[i], held)
+        traded = np.abs(want - held).sum()
+        turnover[i] = traded
+        gross = float(want @ fwd[i])
+        eq[i + 1] = eq[i] * (1.0 - traded * rate) * (1.0 + gross)
+        held = want * (1.0 + fwd[i]) / (1.0 + gross) if (1.0 + gross) > 0 else np.zeros(k)
+        held_hist[i] = want
+        peak = max(peak, eq[i + 1])
+        if max_dd is not None and 1.0 - eq[i + 1] / peak > max_dd:
+            dead, death_i = True, i + 1
+            eq[i + 1] *= 1.0 - np.abs(held).sum() * rate   # liquidate everything, pay costs
+    idx = pd.DatetimeIndex([dates[0]]).append(pd.DatetimeIndex(real_dates))
+    equity = pd.Series(eq, index=idx)
+    rets = equity.pct_change().fillna(0.0)
+    death_date = idx[death_i] if dead else None
+    years = max((idx[-1] - idx[0]).days / 365.25, 1e-9)
+    pos = pd.DataFrame(held_hist, index=dates, columns=tickers or [f"a{j}" for j in range(k)])
+    res = BacktestResult(equity, rets, dead, death_date, positions=pos)
+    res.metrics = compute_metrics(rets, equity, annual_turnover=float(turnover.sum()) / years,
+                                  exposure=float(np.abs(held_hist).sum(axis=1).mean()))
+    res.metrics.update({"dead": dead, "death_date": str(death_date.date()) if dead else None,
+                        "final_equity": float(equity.iloc[-1])})
+    return res
+
+
 def periods_per_year(index: pd.DatetimeIndex) -> float:
     if len(index) < 2:
         return 252.0

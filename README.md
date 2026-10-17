@@ -55,7 +55,7 @@ pip install -r requirements.txt
 python -m pytest -q
 ```
 
-   You should see `18 passed`.
+   You should see `25 passed`.
 
 6. Download the real data and lock the test set:
 
@@ -110,6 +110,10 @@ backtest.py      P&L engine: 0.10% commission + 0.05% slippage, no lookahead, su
 baselines.py     buy & hold, MA crossover (50/200), mean reversion (20d z), momentum (12-1)
 trading_env.py   Gymnasium environment (state / action / reward explained in comments)
 overlay.py       round 2: rule-based base position the agent scales (residual RL)
+rules.py         round 3: rules as candidates (per-asset rules + correlation-aware portfolio rule)
+long_history.py  round 3: rules over 2007-2024 incl. 2008 (informational unless P2 approved)
+rl_signal_ladder.py  round 3: synthetic experiment - how strong must a signal be for PPO to find it?
+PROPOSALS.md     round 3: changes to the pass bar that need YOUR approval
 agents.py        PPO + DQN from stable-baselines3, config-driven
 walkforward.py   folds, per-run training/evaluation, checkpoint/resume, summaries
 evaluation.py    multiple-testing (deflated Sharpe) penalty, pass/fail rules
@@ -240,6 +244,87 @@ is in the `Sharpe - B&H`, `DD / B&H DD` and `rule-only Sharpe` columns.
 | `r2_active_vs_bh_ppo` | no overlay, reward = return − B&H return, DD penalty beyond 8% | target: match B&H with less drawdown |
 | `r2_overlay_bh_weekly_ppo` | overlay, decides every 5 days | costs + daily noise |
 | `r2_voltarget_pure_return_ppo` | round-1 pure-return reward with vol-targeted sizing | was the dying only a sizing problem? |
+
+## 3c. Round 3: stop searching with RL, test the simple rule properly
+
+**Round 2 facts** (from RESULTS.md, real data):
+- **RL lost to its own rule every time.** Every overlay agent scored below its rule with the
+  agent removed (rule 1.46; agents 0.48 to 1.14).
+- **The agents traded more.** Turnover was 5.7 to 11.7 per year, against 3.0 for the rule.
+- **Seeds disagreed.** For `r2_overlay_bh_ppo` the mean return was +24% but the worst seed
+  only +13%. Agents trained with different seeds learned different things, which is what
+  fitting noise looks like.
+- **The plain `vol_target` rule did best:** Sharpe 1.46, survived 9/9, DSR probability 0.99.
+  It still failed the bar, because its penalized Sharpe was 0.82.
+- **The trend filter hurt.** `trend_vol_target` scored 1.04 against 1.46 without it.
+
+**Diagnosis: why RL fails here** (evidence for each in the final report and below):
+1. **Little left to learn.** The features are price-only, and the one thing they reliably
+   predict is volatility. Vol targeting already uses that (+0.40 Sharpe over buy-and-hold).
+   Every other signal tried (trend, momentum, mean reversion) did not beat buy-and-hold here.
+2. **The signal is too weak for the trading costs. This is the main cause.** The signal-ladder
+   experiment below shows PPO *can* learn: with zero costs it found planted signals as weak as
+   φ = 0.05. With the real 0.15% costs, even a trader who knows the signal perfectly loses money
+   at φ = 0.05 and barely breaks even at φ = 0.10. A daily timing signal has to be strong before
+   trading it pays.
+3. **Too few examples of "when to cut risk".** 8.8 validation years contain only a handful of
+   real sell-offs. The seed disagreement and the 2-4x turnover are what fitting noise looks like.
+4. **The reward was not the remaining bottleneck.** Round 2 changed it three ways (relative,
+   Sharpe-based, pure return). All lost to the rule, and the one closest to the rule
+   (Sharpe reward) lost least.
+5. **The period flatters everything long-biased.** Buy-and-hold Sharpe 1.06 is unusually
+   high, and there was no 2008. This doesn't explain RL's failure, but it means
+   `vol_target`'s 1.46 is probably optimistic.
+
+`rl_signal_ladder.py` tests point 2 directly on synthetic data with a planted signal. These
+results come from my sandbox run on **synthetic data**: a learning experiment, not market
+results. Your laptop run writes `RL_SIGNAL_LADDER.md`. φ is the planted lag-1 autocorrelation
+of daily returns; out-of-sample Sharpe over 3 unseen years, PPO mean of 3 seeds:
+
+| costs | φ | PPO | PPO worst seed | ideal rule (knows the signal) |
+|---|---|---|---|---|
+| 0 | 0.00 | 0.03 | -0.13 | 0.11 |
+| 0 | 0.05 | 0.51 | 0.49 | 0.69 |
+| 0 | 0.10 | 0.92 | 0.58 | 1.45 |
+| 0 | 0.20 | 2.14 | 2.03 | 2.67 |
+| 0.15% | 0.05 | -0.20 | -0.37 | -0.42 |
+| 0.15% | 0.10 | -0.03 | -0.18 | 0.07 |
+| 0.15% | 0.20 | 0.57 | 0.26 | 1.28 |
+
+Compare these φ values with the real ones: RESULTS.md's data-quality table now shows the lag-1
+autocorrelation of every asset, measured on development data only. If the real values are
+small, the most anything can earn from daily timing on these features, after costs, is small.
+
+**Decision:**
+- *RL:* stop using it to search for strategies. No new RL variants this round.
+- *Rules:* make them proper candidates and test them hard.
+- *RL code:* stays as a learning tool. `inspect_agent.py` and the ladder show how it works and
+  when it can work.
+
+**The 2 round-3 candidates** (each new candidate costs every result a bigger luck haircut):
+
+| config | what | why |
+|---|---|---|
+| `r3_rule_vol_target` | round 2's `vol_target`, parameters unchanged | best result so far; never formally robustness-tested or eligible for the final test |
+| `r3_rule_portfolio_vt` | inverse-vol weights + whole-portfolio vol target (8%) using the covariance matrix | vol_target ignores that assets fall together (2020, stocks + bonds in 2022) |
+
+**Rejected:**
+- *More RL variants on daily bars:* the evidence above.
+- *Trend-filtered rules:* round 2 showed the trend filter hurt.
+- *Intraday data:* Yahoo keeps only about 60 days of 5-minute bars, far too short for
+  walk-forward, and 0.15% costs swamp short-horizon edges.
+- *Crypto or a new universe:* changing the data after seeing results is another way of
+  fishing. It could be a separate project with its own locked test set.
+- *RL for execution:* needs order-book data, a broker feed and a different problem.
+
+**Honest accounting:**
+- Every rule shown in rounds 1-2 now counts as a trial (`multiple_testing.extra_trials: 5`),
+  so N = 27.
+- Rules have no seed, so their robustness uses neighbouring parameters instead; every
+  neighbour must pass.
+- The pass bar is unchanged. PROPOSALS.md argues, with numbers, that it is too strict: a
+  strategy with a true Sharpe of 1.0 would pass it about 2% of the time. Two switches in
+  `base_config.yaml` are there for you to approve or not (P1, P2).
 
 ## 3b. How the RL part works (short version)
 

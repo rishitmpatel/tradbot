@@ -23,7 +23,8 @@ CONFIGS_DIR = ROOT / "configs"
 # Keys that do not change the *strategy* (only how fast / where it runs).
 # They are excluded from the config hash, so changing n_jobs does not
 # invalidate finished runs.
-NON_STRATEGY_KEYS = {"runtime", "name", "description", "robustness", "pass_criteria",
+NON_STRATEGY_KEYS = {"runtime", "name", "description", "robustness", "pass_criteria", "multiple_testing",
+                     "final_test_criteria",
                      "experiment_cap", "round"}
 
 
@@ -94,6 +95,18 @@ def resolve_n_jobs(value) -> int:
 
 
 def validate(cfg: dict) -> None:
+    if cfg.get("kind", "rl") == "rule":
+        from baselines import BASELINES
+        from rules import PORTFOLIO_RULES
+        rule = cfg.get("rule") or {}
+        if rule.get("name") not in {**BASELINES, **PORTFOLIO_RULES}:
+            raise ValueError(f"rule.name must be one of {sorted({**BASELINES, **PORTFOLIO_RULES})}")
+        params = set((rule.get("params") or {}).keys())
+        for ov in rule.get("neighborhood") or []:
+            if not set(ov) <= params:
+                raise ValueError(f"neighborhood entry {ov} changes a parameter not in rule.params")
+    elif cfg.get("kind", "rl") != "rl":
+        raise ValueError("kind must be rl or rule")
     algo = str(cfg["agent"]["algo"]).upper()
     if algo not in ("PPO", "DQN"):
         raise ValueError(f"agent.algo must be PPO or DQN, got {algo}")
